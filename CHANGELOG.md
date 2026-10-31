@@ -1,5 +1,11 @@
 # Journal des modifications
 
+## 2.0.1
+
+- Les réglages à choix (entrée, préréglage couleur…) s'affichent avec leur vraie valeur : elle était ramenée au maximum annoncé par l'écran, ce qui montrait par exemple « DVI 1 » pour un écran en DisplayPort.
+- Un réglage qui annonce un maximum nul n'est plus pris pour un écran muet.
+- La température de couleur (code 0x0C) peut être ajoutée au panneau.
+
 ## 2.0.0
 
 Toutes les commandes DDC/CI de vos écrans réunies dans MonitorMG, inspirées de Twinkle Tray.

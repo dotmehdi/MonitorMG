@@ -286,11 +286,11 @@ async fn ddc_values(app: AppHandle, key: String) -> Res<Vec<DdcValue>> {
     Ok(display::vcp_get(&key, &codes)?
         .into_iter()
         .map(|(code, r)| {
-            let value = r.map(|(cur, max)| match sc.discrete(code) {
+            let value = r.and_then(|(cur, max)| match sc.discrete(code) {
                 // Certains écrans renvoient l'entrée avec un octet de poids fort.
-                true => cur & 0xFF,
-                false if code == display::VCP_POWER => cur,
-                false => feature_range(&sc, code).to_slider((cur * 100 + max / 2) / max),
+                true => Some(cur & 0xFF),
+                false if code == display::VCP_POWER => Some(cur),
+                false => display::percent((cur, max)).map(|p| feature_range(&sc, code).to_slider(p)),
             });
             DdcValue { code, value }
         })

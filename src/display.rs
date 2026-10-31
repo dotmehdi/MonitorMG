@@ -962,8 +962,14 @@ fn on_screen<T>(key: &str, f: impl FnOnce(&mut BTreeMap<String, u32>, HANDLE) ->
     })
 }
 
-/// (valeur, maximum) d'un code VCP.
+/// (valeur, maximum) d'un code VCP, tels que l'écran les renvoie. Pour un réglage à
+/// choix, le maximum ne veut rien dire : une entrée peut valoir 0x0F avec un maximum de 3.
 pub type Vcp = (u32, u32);
+
+/// Valeur d'un réglage continu en % de son maximum.
+pub fn percent((cur, max): Vcp) -> Option<u32> {
+    (max > 0).then(|| ((cur * 100 + max / 2) / max).min(100))
+}
 
 /// Lit un code VCP. Le bus DDC/CI échoue parfois, surtout quand un autre logiciel
 /// interroge l'écran au même moment : un second essai, 50 ms après.
@@ -976,7 +982,7 @@ fn ddc_read(h: HANDLE, code: u8) -> Option<Vcp> {
         let ok = unsafe { GetVCPFeatureAndVCPFeatureReply(h, code, None, &mut cur, Some(&mut max)) } != 0;
         // Certains écrans annoncent 65535 mais n'acceptent que 0 à 100.
         let max = if max == 0xFFFF && cur <= 100 { 100 } else { max };
-        (ok && max > 0).then_some((cur.min(max), max))
+        ok.then_some((cur, max))
     })
 }
 
@@ -1067,11 +1073,11 @@ pub fn read_brightness() -> bool {
     }
     with_ddc(&ts, |max, k, h| {
         let tu = tuning(k);
-        let r = ddc_read(h, tu.vcp);
+        let r = ddc_read(h, tu.vcp).filter(|x| x.1 > 0);
         if let Some((_, m)) = r {
             max.insert(slot(k, tu.vcp), m);
         }
-        note(k, r.map(|(cur, m)| tu.range.to_slider((cur * 100 + m / 2) / m)));
+        note(k, r.and_then(percent).map(|p| tu.range.to_slider(p)));
     });
     let mut l = lock(&LEVELS);
     l.retain(|k, _| ts.iter().any(|t| t.0 == *k));
@@ -1085,7 +1091,7 @@ fn refused() -> String {
 /// Règle un code VCP continu à `pct` % de son maximum.
 fn ddc_level(max: &mut BTreeMap<String, u32>, key: &str, h: HANDLE, code: u8, pct: u32) -> Res<()> {
     let s = slot(key, code);
-    match max.get(&s).copied().or_else(|| ddc_read(h, code).map(|x| x.1)) {
+    match max.get(&s).copied().or_else(|| ddc_read(h, code).map(|x| x.1)).filter(|&m| m > 0) {
         Some(m) if unsafe { SetVCPFeature(h, code, (pct.min(100) * m + 50) / 100) } != 0 => {
             max.insert(s, m);
             Ok(())
@@ -1192,7 +1198,7 @@ pub fn vcp_get(key: &str, codes: &[u8]) -> Res<Vec<(u8, Option<Vcp>)>> {
             .iter()
             .map(|&c| {
                 let r = ddc_read(h, c);
-                if let Some((_, m)) = r {
+                if let Some((_, m)) = r.filter(|x| x.1 > 0) {
                     max.insert(slot(key, c), m);
                 }
                 (c, r)
@@ -1385,6 +1391,7 @@ mod tests {
         assert_eq!((r.to_slider(5), r.to_slider(95)), (0, 100));
         assert_eq!(Range::FULL.to_hw(42), 42);
         assert!(!Range(50, 50).valid() && !Range(0, 101).valid() && Range(0, 100).valid());
+        assert_eq!((percent((50, 100)), percent((32, 64)), percent((15, 3)), percent((1, 0))), (Some(50), Some(50), Some(100), None));
     }
 
     #[test]
@@ -1481,7 +1488,12 @@ mod tests {
             println!("capacités {} en {:?} : {caps:x?}", m.name, t.elapsed());
             if let Ok(c) = caps {
                 let codes: Vec<u8> = c.keys().copied().filter(|&k| [0x10, 0x12, 0x14, 0x60, 0x62, 0xD6].contains(&k)).collect();
-                println!("valeurs : {:x?}", vcp_get(&m.key, &codes));
+                let vals = vcp_get(&m.key, &codes).unwrap();
+                println!("valeurs : {vals:x?}");
+                // Une entrée se lit telle quelle, même au-delà du « maximum » annoncé.
+                if let (Some(list), Some((_, Some((cur, _))))) = (c.get(&0x60), vals.iter().find(|v| v.0 == 0x60)) {
+                    assert!(list.contains(&((cur & 0xFF) as u8)), "entrée {cur:#x} absente de {list:x?}");
+                }
             }
         }
     }

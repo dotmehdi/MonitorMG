@@ -249,6 +249,7 @@ const EN = {
   "Réglage du fabricant {0}": "Manufacturer control {0}",
   "Code {0}": "Code {0}",
   Contraste: "Contrast",
+  "Température de couleur": "Color temperature",
   Rétroéclairage: "Backlight",
   "Préréglage couleur": "Color preset",
   "Gain rouge": "Red gain",
