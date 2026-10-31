@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Conserver l'affichage ?</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="confirm-page">
+  <main data-tauri-drag-region>
+    <h1 data-tauri-drag-region>Conserver cet affichage ?</h1>
+    <p data-tauri-drag-region aria-live="polite">Retour automatique dans <span id="left"></span> s.</p>
+  </main>
+  <div class="dialog-actions">
+    <button class="btn primary" id="keep">Conserver</button>
+    <button class="btn" id="revert">Rétablir</button>
+  </div>
+  <script src="i18n.js"></script>
+  <script src="confirm.js"></script>
+</body>
+</html>

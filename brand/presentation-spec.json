@@ -1,0 +1,33 @@
+{
+  "brand": "MonitorMG",
+  "tagline": "Vos écrans, en un clic",
+  "brief": "Un gestionnaire d'affichage pour Windows 10 et 11 qui remplace les Paramètres : écrans, disposition, profils rappelés en un clic. Il doit rassurer, aller vite et se fondre à côté des icônes Windows.",
+  "adjectives": ["simple", "rassurant", "un clic", "discret"],
+  "criteria": "Lisible à 16 px dans la zone de notification, fonctionne en une couleur, se distingue des icônes de moniteur et de luminosité habituelles.",
+  "industry": "software",
+  "nav": ["Fonctions", "Télécharger", "Aide"],
+  "brand_color": "#13294B",
+  "tile_color": "#13294B",
+  "greyscale": false,
+  "designer": "MonitorMG",
+  "round": 2,
+  "concepts": [
+    {
+      "name": "Bascule",
+      "symbol": "final/monitormg-symbol.svg",
+      "lockup": "final/monitormg-horizontal.svg",
+      "symbol_on_tile": "final/monitormg-symbol-reversed.svg",
+      "symbol_on_dark": "final/monitormg-symbol-reversed.svg",
+      "lockup_on_dark": "final/monitormg-horizontal-reversed.svg",
+      "stacked_on_dark": "final/monitormg-stacked-reversed.svg",
+      "idea": "Un écran qui est aussi un interrupteur : un clic, c'est réglé.",
+      "rationale": [
+        "Le cadre dit écran, la pastille dit interrupteur allumé",
+        "Ambre comme la lumière d'un écran, marine comme l'encre : rien de commun avec le bleu et le turquoise des utilitaires",
+        "Une version calée sur la grille de pixels pour 16 px"
+      ]
+    }
+  ],
+  "recommendation": "Bascule : l'idée tient en une phrase et reste lisible de la zone de notification à l'affiche.",
+  "next_steps": ["Remplacer l'icône de l'application", "Mettre le logo dans le README et l'installateur", "Dépôt de marque si publication publique"]
+}

@@ -1,0 +1,35 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "apercu",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "dev/serve.js",
+        "ui",
+        "4517"
+      ],
+      "port": 4517
+    },
+    {
+      "name": "apercu-2",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "dev/serve.js",
+        "ui",
+        "4518"
+      ],
+      "port": 4518
+    },
+    {
+      "name": "apercu-3",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "dev/serve.js",
+        "ui",
+        "4519"
+      ],
+      "port": 4519
+    }
+  ]
+}

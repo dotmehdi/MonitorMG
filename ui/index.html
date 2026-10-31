@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MonitorMG</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="app">
+  <aside class="nav">
+    <nav class="nav-main" aria-label="Sections">
+      <button class="nav-item" data-view="layout" aria-current="page"><span class="i" aria-hidden="true">&#xE7F4;</span>Disposition</button>
+      <button class="nav-item" data-view="ddc"><span class="i" aria-hidden="true">&#xE9E9;</span>DDC/CI</button>
+      <button class="nav-item" data-view="activity"><span class="i" aria-hidden="true">&#xE81C;</span>Activité<span class="nav-dot" id="activity-dot" hidden></span></button>
+      <button class="nav-item" data-view="settings"><span class="i" aria-hidden="true">&#xE713;</span>Paramètres</button>
+    </nav>
+
+    <section class="profiles" aria-labelledby="profiles-title">
+      <div class="section-head">
+        <h2 id="profiles-title">Profils</h2>
+        <button class="icon-btn" id="add-profile" title="Enregistrer l'affichage actuel (Ctrl+S)" aria-label="Enregistrer l'affichage actuel">
+          <span class="i" aria-hidden="true">&#xE710;</span>
+        </button>
+      </div>
+      <ul id="profile-list" class="profile-list"></ul>
+      <div id="profiles-empty" class="empty" hidden>
+        <p>Enregistrez l'affichage actuel pour y revenir en un clic, depuis la zone de notification, un raccourci clavier ou le bureau.</p>
+        <button class="btn" id="add-profile-empty"><span class="i" aria-hidden="true">&#xE74E;</span>Enregistrer l'affichage</button>
+      </div>
+    </section>
+  </aside>
+
+  <main class="layer" id="main" aria-busy="false">
+    <div class="busy-bar" aria-hidden="true"></div>
+
+    <section class="view view-layout" id="view-layout" aria-labelledby="layout-title">
+      <header class="toolbar">
+        <div class="title-block">
+          <h1 id="layout-title">Disposition</h1>
+        </div>
+        <div class="toolbar-actions">
+          <div class="segmented" role="radiogroup" aria-label="Projection" id="topology">
+            <label title="Étendre le bureau sur tous les écrans"><input type="radio" name="topo" value="extend"><span>Étendre</span></label>
+            <label title="Afficher la même image partout"><input type="radio" name="topo" value="clone"><span>Dupliquer</span></label>
+            <label title="Écran du PC uniquement"><input type="radio" name="topo" value="internal"><span>Écran PC</span></label>
+            <label title="Deuxième écran uniquement"><input type="radio" name="topo" value="external"><span>Second écran</span></label>
+          </div>
+          <button class="btn" id="identify" title="Afficher le numéro de chaque écran (Ctrl+I)">
+            <span class="i" aria-hidden="true">&#xE7F4;</span>Identifier
+          </button>
+        </div>
+      </header>
+
+      <div class="stage" id="stage">
+        <div class="canvas" id="canvas" role="group" aria-label="Disposition des écrans"></div>
+        <div class="parked" id="parked"></div>
+        <p class="stage-msg" id="stage-msg">Lecture des écrans…</p>
+      </div>
+
+      <section class="inspector" id="inspector" aria-live="polite"></section>
+    </section>
+
+    <section class="view view-page" id="view-ddc" aria-labelledby="ddc-title" hidden>
+      <header class="toolbar">
+        <div class="title-block">
+          <h1 id="ddc-title">DDC/CI</h1>
+        </div>
+        <div class="toolbar-actions">
+          <button class="btn" id="ddc-reread" title="Relire les commandes annoncées par chaque écran">
+            <span class="i" aria-hidden="true">&#xE72C;</span>Relire les écrans
+          </button>
+        </div>
+      </header>
+      <div class="page-body">
+        <p class="lede">Choisissez les réglages de chaque écran affichés dans le panneau, ouvert d'un clic sur l'icône de la zone de notification. Un double clic ouvre cette fenêtre.</p>
+        <div id="ddc-screens"></div>
+
+        <h2 class="group-title">Extinction</h2>
+        <div class="stack">
+          <label class="row">
+            <span class="row-label"><span>Éteindre les écrans</span><small>Bouton du panneau, menu de notification et raccourci clavier</small></span>
+            <select id="off-mode">
+              <option value="soft">Mise en veille de Windows</option>
+              <option value="hard">Signal DDC/CI</option>
+              <option value="both">Les deux</option>
+            </select>
+          </label>
+          <label class="row">
+            <span class="row-label"><span>Signal DDC/CI envoyé</span><small>Certains écrans ne se rallument ensuite qu'avec leur bouton</small></span>
+            <select id="power-signal">
+              <option value="4">Veille</option>
+              <option value="5">Arrêt</option>
+              <option value="6">Veille puis arrêt</option>
+            </select>
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <section class="view view-page" id="view-activity" aria-labelledby="activity-title" hidden>
+      <header class="toolbar">
+        <div class="title-block">
+          <h1 id="activity-title">Activité</h1>
+        </div>
+        <div class="toolbar-actions">
+          <button class="btn" id="undo-btn" title="Annuler la dernière modification (Ctrl+Z)">
+            <span class="i" aria-hidden="true">&#xE7A7;</span><span id="undo-label">Annuler</span>
+          </button>
+        </div>
+      </header>
+      <div class="page-body" id="activity-list"></div>
+    </section>
+
+    <section class="view view-page" id="view-settings" aria-labelledby="settings-title" hidden>
+      <header class="toolbar">
+        <div class="title-block">
+          <h1 id="settings-title">Paramètres</h1>
+        </div>
+      </header>
+      <div class="page-body">
+        <h2 class="group-title">Général</h2>
+        <div class="stack">
+          <label class="row">
+            <span class="row-label"><span>Lancer avec Windows</span><small>MonitorMG démarre discrètement dans la zone de notification</small></span>
+            <input type="checkbox" role="switch" class="switch" id="autostart">
+          </label>
+        </div>
+
+        <h2 class="group-title" id="tray-title">Icône de la zone de notification</h2>
+        <div class="icon-choices" id="tray-icons" role="radiogroup" aria-labelledby="tray-title"></div>
+
+        <h2 class="group-title">Sécurité d'affichage</h2>
+        <div class="stack">
+          <label class="row">
+            <span class="row-label"><span>Confirmer les changements</span><small>Résolution, fréquence, orientation, activation et projection</small></span>
+            <input type="checkbox" role="switch" class="switch" id="confirm-on">
+          </label>
+          <label class="row" id="confirm-delay">
+            <span class="row-label"><span>Retour automatique après</span><small>Sans réponse, l'affichage précédent revient</small></span>
+            <select id="confirm-secs">
+              <option value="5">5 s</option>
+              <option value="10">10 s</option>
+              <option value="15">15 s</option>
+              <option value="20">20 s</option>
+              <option value="30">30 s</option>
+              <option value="60">60 s</option>
+            </select>
+          </label>
+          <p class="foot-note" id="confirm-off" hidden>Sans confirmation, un mode refusé par l'écran peut le laisser noir. L'annulation reste possible depuis le menu de notification.</p>
+        </div>
+
+        <h2 class="group-title">Raccourcis clavier</h2>
+        <div class="stack">
+          <div class="row">
+            <span class="row-label"><span>Éteindre les écrans</span><small>Une touche ou un mouvement de souris les rallume</small></span>
+            <button class="btn" id="off-hotkey"></button>
+          </div>
+          <div class="row">
+            <span class="row-label"><span>Monter la luminosité</span><small>Tous les écrans réglables</small></span>
+            <button class="btn" id="up-hotkey"></button>
+          </div>
+          <div class="row">
+            <span class="row-label"><span>Baisser la luminosité</span><small>Tous les écrans réglables</small></span>
+            <button class="btn" id="down-hotkey"></button>
+          </div>
+          <label class="row">
+            <span class="row-label"><span>Pas de luminosité</span><small>À chaque appui</small></span>
+            <select id="step">
+              <option value="2">2 %</option>
+              <option value="5">5 %</option>
+              <option value="10">10 %</option>
+              <option value="20">20 %</option>
+            </select>
+          </label>
+        </div>
+        <dl class="shortcuts" id="shortcuts"></dl>
+
+        <h2 class="group-title">Données</h2>
+        <div class="stack">
+          <div class="row">
+            <span class="row-label"><span>Profils, réglages et journal</span><small class="path" id="data-dir"></small></span>
+            <button class="btn" id="open-data"><span class="i" aria-hidden="true">&#xE838;</span>Ouvrir le dossier</button>
+          </div>
+        </div>
+
+        <h2 class="group-title">À propos</h2>
+        <div class="about">
+          <img src="icon.svg" alt="">
+          <div>
+            <strong>MonitorMG</strong>
+            <p id="about-version"></p>
+            <p>Logiciel libre sous licence MIT, © 2026 MonitorMG.</p>
+            <p>Composants libres : Tauri, windows-rs et serde, sous licences MIT ou Apache 2.0.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="menu" class="menu" popover role="menu"></div>
+
+  <dialog id="dlg" class="dialog">
+    <form method="dialog" id="dlg-form">
+      <h2 id="dlg-title" tabindex="-1"></h2>
+      <div id="dlg-body"></div>
+      <div class="dialog-actions" id="dlg-actions"></div>
+    </form>
+  </dialog>
+
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+  <script src="i18n.js"></script>
+  <script src="vcp.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

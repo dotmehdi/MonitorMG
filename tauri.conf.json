@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MonitorMG",
+  "mainBinaryName": "MonitorMG",
+  "version": "2.0.0",
+  "identifier": "app.monitormg",
+  "build": {
+    "frontendDist": "ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; form-action 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "MonitorMG",
+    "copyright": "© 2026 MonitorMG",
+    "licenseFile": "LICENSE",
+    "category": "Utility",
+    "shortDescription": "Gestion des écrans pour Windows",
+    "longDescription": "Activez, placez et réglez vos écrans, enregistrez des profils d'affichage et rappelez-les depuis la zone de notification, un raccourci clavier ou le bureau.",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
+    "windows": {
+      "webviewInstallMode": { "type": "embedBootstrapper" },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["French", "English"],
+        "installerIcon": "icons/icon.ico",
+        "installerHooks": "windows/hooks.nsh"
+      }
+    }
+  }
+}

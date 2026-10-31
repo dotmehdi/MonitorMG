@@ -1,0 +1,6 @@
+{
+  "identifier": "confirm",
+  "description": "Fenêtre « Conserver cet affichage ? » : une seule commande, et le déplacement de la fenêtre.",
+  "windows": ["confirm"],
+  "permissions": ["core:window:allow-start-dragging", "allow-confirm"]
+}

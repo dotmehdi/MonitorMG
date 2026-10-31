@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 256">
+  <svg x="0" y="0" width="256" height="256" viewBox="0 0 256 256">  <path d="M52 42H74L120 121.7V196A16 16 0 0 1 104 212H52A16 16 0 0 1 36 196V58A16 16 0 0 1 52 42Z"/>
+  <path d="M204 42H182L136 121.7V196A16 16 0 0 0 152 212H204A16 16 0 0 0 220 196V58A16 16 0 0 0 204 42Z"/></svg>
+  <text x="290" y="162" font-family="Segoe UI Variable Display, Segoe UI, sans-serif" font-weight="600" font-size="104" letter-spacing="-1">MonitorMG</text>
+</svg>

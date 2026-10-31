@@ -1,0 +1,19 @@
+{
+  "identifier": "flyout",
+  "description": "Panneau ouvert d'un clic sur l'icône de notification : luminosité, réglages DDC/CI affichés, profils, extinction des écrans.",
+  "windows": ["flyout"],
+  "permissions": [
+    "core:event:default",
+    "core:window:allow-close",
+    "allow-state",
+    "allow-set-brightness",
+    "allow-ddc-values",
+    "allow-ddc-set",
+    "allow-ddc-power",
+    "allow-set-panel",
+    "allow-profile-apply",
+    "allow-screens-off-now",
+    "allow-open-main",
+    "allow-flyout-fit"
+  ]
+}

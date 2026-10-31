@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Écrans</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="flyout-page">
+  <main class="flyout" id="fly" aria-labelledby="fly-title" hidden>
+    <header class="flyout-head">
+      <h1 id="fly-title">Écrans</h1>
+      <div class="fly-tools">
+        <button class="icon-btn" id="link" aria-pressed="false" title="Un seul curseur pour tous les écrans" aria-label="Un seul curseur pour tous les écrans" hidden><span class="i" aria-hidden="true">&#xE71B;</span></button>
+        <button class="icon-btn" id="off" title="Éteindre les écrans" aria-label="Éteindre les écrans"><span class="i" aria-hidden="true">&#xE708;</span></button>
+        <button class="icon-btn" id="settings" title="Réglages DDC/CI" aria-label="Réglages DDC/CI"><span class="i" aria-hidden="true">&#xE713;</span></button>
+      </div>
+    </header>
+    <div class="fly-body" id="list"></div>
+    <footer class="fly-foot" id="foot" hidden>
+      <h2 class="fly-label" id="profiles-label">Profils</h2>
+      <div class="fly-chips" id="profiles" role="group" aria-labelledby="profiles-label"></div>
+    </footer>
+    <p class="fly-msg" id="msg" role="status" aria-live="polite"></p>
+  </main>
+  <script src="i18n.js"></script>
+  <script src="vcp.js"></script>
+  <script src="flyout.js"></script>
+</body>
+</html>
