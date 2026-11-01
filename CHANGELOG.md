@@ -1,5 +1,10 @@
 # Journal des modifications
 
+## 2.0.2
+
+- Gamma (code 0x72) affiché en valeur réelle : 1,8, 2,0, 2,2… au lieu des codes bruts.
+- Mise à l'échelle de l'image (code 0x86) nommée : 1:1, Proportions, Plein écran…
+
 ## 2.0.1
 
 - Les réglages à choix (entrée, préréglage couleur…) s'affichent avec leur vraie valeur : elle était ramenée au maximum annoncé par l'écran, ce qui montrait par exemple « DVI 1 » pour un écran en DisplayPort.

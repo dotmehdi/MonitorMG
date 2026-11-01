@@ -19,6 +19,7 @@ const VCP = {
   0x70: ["Noir bleu", "\uE790"],
   0x72: ["Gamma", "\uE793"],
   0x87: ["Netteté", "\uE9E9"],
+  0x86: ["Mise à l'échelle de l'image", ""],
   0x8a: ["Saturation", "\uE790"],
   0x8d: ["Sourdine", "\uE74F"],
   0x90: ["Teinte", "\uE790"],
@@ -60,6 +61,14 @@ const VCP_VALUES = {
     0x0b: "Personnalisé 1",
     0x0c: "Personnalisé 2",
     0x0d: "Personnalisé 3",
+  },
+  // Image d'une source qui n'a pas la définition de l'écran.
+  0x86: {
+    0x01: "1:1",
+    0x02: "Proportions",
+    0x03: "Hauteur maximale",
+    0x04: "Largeur maximale",
+    0x05: "Plein écran",
   },
   0x8d: { 0x01: "Son coupé", 0x02: "Son actif" },
   0xcc: {
@@ -106,6 +115,8 @@ function vcpName(code) {
 const vcpIcon = (code) => VCP[code]?.[1] ?? "";
 
 function vcpValueName(code, v) {
+  // Gamma MCCS : valeur absolue (v + 100) / 100, de 1,0 à 3,55.
+  if (code === 0x72) return (1 + v / 100).toLocaleString(LOCALE, { minimumFractionDigits: 1, maximumFractionDigits: 2 });
   const n = VCP_VALUES[code]?.[v];
   return n ? t(n) : hex(v);
 }
