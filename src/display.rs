@@ -952,7 +952,11 @@ fn on_screen<T>(key: &str, f: impl FnOnce(&mut BTreeMap<String, u32>, HANDLE) ->
     let ts = targets()?;
     let (mut f, mut out) = (Some(f), None);
     with_ddc(&ts, |max, k, h| {
-        if let (true, Some(f)) = (k == key, f.take()) {
+        // `take` seulement pour le bon écran : sinon le premier parcouru la consommerait.
+        if k != key {
+            return;
+        }
+        if let Some(f) = f.take() {
             out = Some(f(max, h));
         }
     });
@@ -1401,7 +1405,7 @@ mod tests {
         assert!(!r"DISPLAY\GBT3214\5&9d93ce2&1&UID2720_0".to_uppercase().starts_with(&wmi_instance(path)));
     }
 
-    /// Change vraiment la luminosité du premier écran réglable, puis la rétablit.
+    /// Change vraiment la luminosité de chaque écran réglable, puis la rétablit.
     /// `cargo test live_brightness_write -- --ignored --nocapture`
     #[test]
     #[ignore]
@@ -1409,17 +1413,20 @@ mod tests {
         let pause = || std::thread::sleep(std::time::Duration::from_millis(1500));
         let level = |k: &str| lock(&LEVELS).get(k).copied();
         read_brightness();
-        let (key, before) = lock(&LEVELS).iter().next().map(|(k, v)| (k.clone(), *v)).expect("aucun écran réglable");
-        set_brightness(&key, 30).unwrap();
-        pause();
-        read_brightness(); // relu sur l'écran, pas dans le cache
-        let during = level(&key);
-        set_brightness(&key, before).unwrap();
-        pause();
-        read_brightness();
-        let after = level(&key);
-        println!("avant {before} %, pendant {during:?}, après {after:?}");
-        assert_eq!((during, after), (Some(30), Some(before)));
+        let all = lock(&LEVELS).clone();
+        assert!(!all.is_empty(), "aucun écran réglable");
+        for (key, before) in all {
+            set_brightness(&key, 30).unwrap_or_else(|e| panic!("{}: {e}", name(&key)));
+            pause();
+            read_brightness(); // relu sur l'écran, pas dans le cache
+            let during = level(&key);
+            set_brightness(&key, before).unwrap();
+            pause();
+            read_brightness();
+            let after = level(&key);
+            println!("{} : avant {before} %, pendant {during:?}, après {after:?}", name(&key));
+            assert_eq!((during, after), (Some(30), Some(before)));
+        }
     }
 
     /// Lit la configuration réelle et fait valider par Windows chaque opération,
@@ -1480,6 +1487,11 @@ mod tests {
             let n: DISPLAYCONFIG_TARGET_DEVICE_NAME = info(GET_TARGET_NAME, p.targetInfo.adapterId, p.targetInfo.id).unwrap();
             let id = wmi_instance(&wstr(&n.monitorDevicePath));
             println!("WMI {id}: {:?}", wmi_brightness(id.clone()));
+        }
+        // Chaque écran dont la luminosité se lit doit être joignable un par un, pas
+        // seulement le premier (régression de la 2.0.0 avec deux écrans externes).
+        for k in lock(&LEVELS).clone().keys().filter(|k| mons.iter().any(|m| &m.key == *k && !m.internal)) {
+            vcp_get(k, &[VCP_BRIGHTNESS]).unwrap_or_else(|e| panic!("{}: {e}", name(k)));
         }
         // Capacités et valeurs DDC/CI, en lecture seule.
         for m in mons.iter().filter(|m| m.active && !m.internal) {

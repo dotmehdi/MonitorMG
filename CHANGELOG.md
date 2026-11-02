@@ -1,5 +1,10 @@
 # Journal des modifications
 
+## 2.0.3
+
+- Avec plusieurs écrans externes, seul le premier répondait : luminosité, réglages DDC/CI et lecture des commandes échouaient sur les autres (« Cet écran ne permet pas de régler la luminosité »). Corrigé ; le test réel vérifie désormais chaque écran.
+- Le panneau s'agrandit quand un message apparaît, au lieu de rogner la liste des écrans. Les messages d'erreur nomment l'écran et le réglage en cause.
+
 ## 2.0.2
 
 - Gamma (code 0x72) affiché en valeur réelle : 1,8, 2,0, 2,2… au lieu des codes bruts.

@@ -24,11 +24,15 @@ function el(tag, props = {}, ...kids) {
 }
 
 const glyph = (g) => el("span", { class: "i", "aria-hidden": "true", text: g });
-const say = (text) => ($("#msg").textContent = text ?? "");
+/** Message en bas du panneau ; le panneau grandit pour le montrer sans rogner la liste. */
+function say(text) {
+  $("#msg").textContent = text ?? "";
+  if (S) fit();
+}
 const close = () => win.close();
 
 /** Envoi au fil du glissement : DDC/CI est lent, une requête à la fois, la dernière valeur gagne. */
-function queue(send) {
+function queue(send, label) {
   let inflight = false;
   let queued = null;
   return async (v) => {
@@ -42,7 +46,7 @@ function queue(send) {
         await send(x);
       } catch (e) {
         queued = null;
-        say(String(e));
+        say(t("{0} : {1}", label, e));
       }
     }
     inflight = false;
@@ -59,7 +63,7 @@ function sliderRow({ id, label, icon, value, onChange }) {
     out.textContent = `${v}${NNBSP}%`;
     input.setAttribute("aria-valuetext", out.textContent);
   };
-  const send = queue(onChange);
+  const send = queue(onChange, label);
   input.addEventListener("input", () => {
     show(input.valueAsNumber);
     send(input.valueAsNumber);
@@ -103,16 +107,20 @@ function choiceRow(m, sc, code) {
       if (code === VCP_INPUT && armed !== v) {
         armed = v;
         hint.textContent = t("L'écran affichera {0} et quittera ce PC. Cliquez à nouveau pour confirmer.", vcpValueName(code, v));
+        fit();
         set(current);
         return;
       }
       armed = null;
-      hint.textContent = "";
+      if (hint.textContent) {
+        hint.textContent = "";
+        fit();
+      }
       try {
         await invoke("ddc_set", { key: m.key, code, value: v });
         current = v;
       } catch (e) {
-        say(String(e));
+        say(t("{0} : {1}", vcpName(code), e));
         set(current);
       }
     });

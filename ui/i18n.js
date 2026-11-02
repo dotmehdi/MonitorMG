@@ -233,6 +233,7 @@ const EN = {
   "{0}, maximum en %": "{0}, maximum in %",
   à: "to",
   "Sans réponse": "No response",
+  "{0} : {1}": "{0}: {1}",
   "L'écran affichera {0} et quittera ce PC. Cliquez à nouveau pour confirmer.": "The display will show {0} and leave this PC. Click again to confirm.",
   "Éteindre l'écran": "Turn display off",
   "Allumer l'écran": "Turn display on",

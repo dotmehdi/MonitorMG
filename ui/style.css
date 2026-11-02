@@ -1664,6 +1664,7 @@ option::checkmark {
   gap: var(--s3);
   min-height: 0;
   overflow-y: auto;
+  scrollbar-width: thin;
   padding: var(--s2) var(--s4) var(--s4);
 }
 
