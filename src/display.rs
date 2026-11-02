@@ -6,13 +6,13 @@ use crate::store;
 use serde::{Deserialize, Serialize};
 use std::collections::{hash_map::Entry, BTreeMap, BTreeSet, HashMap, HashSet};
 use std::mem::size_of;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{mpsc, Mutex, MutexGuard, OnceLock, PoisonError};
 use windows::core::{w, BOOL, BSTR, HRESULT, PCWSTR};
 use windows::Win32::Devices::Display::*;
 use windows::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, HANDLE, LPARAM, LUID, POINTL, RECT};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::System::Com::{
-    CoCreateInstance, CoInitializeEx, CoSetProxyBlanket, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, EOAC_NONE,
+    CoCreateInstance, CoInitializeEx, CoSetProxyBlanket, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, EOAC_NONE,
     RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE,
 };
 use windows::Win32::System::Variant::VARIANT;
@@ -143,6 +143,7 @@ pub struct Snapshot {
     pub scales: BTreeMap<String, u32>,
     #[serde(default)]
     pub hdr: BTreeMap<String, bool>,
+    /// Niveau réel de chaque écran (%), indépendant de la plage réglée ensuite.
     #[serde(default)]
     pub brightness: BTreeMap<String, u32>,
 }
@@ -256,7 +257,8 @@ fn set_value(kind: i32, adapter: LUID, id: u32, value: i32) -> Res<()> {
 
 pub fn query(all: bool) -> Res<Config> {
     let flags = if all { QDC_ALL_PATHS } else { QDC_ONLY_ACTIVE_PATHS };
-    loop {
+    // Quelques essais seulement : sous une rafale de changements, mieux vaut une erreur.
+    for _ in 0..5 {
         let (mut np, mut nm) = (0u32, 0u32);
         unsafe { GetDisplayConfigBufferSizes(flags, &mut np, &mut nm) }
             .ok()
@@ -274,6 +276,7 @@ pub fn query(all: bool) -> Res<Config> {
         modes.truncate(nm as usize);
         return Ok(Config { paths, modes });
     }
+    Err(store::t("La configuration d'affichage change sans cesse, réessayez", "The display configuration keeps changing, try again").into())
 }
 
 fn apply(cfg: &Config, flags: SET_DISPLAY_CONFIG_FLAGS) -> Res<()> {
@@ -478,20 +481,34 @@ fn apply_hdr(adapter: LUID, target: u32, on: bool) -> Res<()> {
 
 // ---------------------------------------------------------------- lecture
 
+/// Un chemin par écran branché, les actifs d'abord : l'ordre des numéros d'écran.
+fn screens(cfg: &Config) -> Vec<&DISPLAYCONFIG_PATH_INFO> {
+    let mut seen = HashSet::new();
+    let ordered = cfg.paths.iter().filter(|p| is_active(p)).chain(cfg.paths.iter().filter(|p| !is_active(p)));
+    ordered
+        .filter(|p| p.targetInfo.targetAvailable.as_bool() && seen.insert((luid64(p.targetInfo.adapterId), p.targetInfo.id)))
+        .collect()
+}
+
+/// Noms des écrans, dans l'ordre de `screens`. Deux écrans du même modèle (un dock avec
+/// deux écrans identiques) prennent leur numéro, comme dans Windows.
+fn names(paths: &[&DISPLAYCONFIG_PATH_INFO]) -> Vec<String> {
+    numbered(paths.iter().map(|p| friendly(&p.targetInfo)).collect())
+}
+
+fn numbered(raw: Vec<String>) -> Vec<String> {
+    raw.iter().enumerate().map(|(i, n)| if raw.iter().filter(|x| *x == n).count() > 1 { format!("{n} ({})", i + 1) } else { n.clone() }).collect()
+}
+
 pub fn monitors() -> Res<Vec<Monitor>> {
     let cfg = query(true)?;
     let mut keys = Keys::default();
-    let mut seen = HashSet::new();
     let mut sources: HashMap<(u64, u32), String> = HashMap::new();
     let mut out = Vec::new();
-    let ordered = cfg.paths.iter().filter(|p| is_active(p)).chain(cfg.paths.iter().filter(|p| !is_active(p)));
-    for p in ordered {
+    let list = screens(&cfg);
+    for (p, name) in list.iter().zip(names(&list)) {
         let t = &p.targetInfo;
-        if !t.targetAvailable.as_bool() || !seen.insert((luid64(t.adapterId), t.id)) {
-            continue;
-        }
         let internal = is_internal(t.outputTechnology);
-        let name = friendly(t);
         let native = info::<DISPLAYCONFIG_TARGET_PREFERRED_MODE>(GET_PREFERRED_MODE, t.adapterId, t.id)
             .map(|m| (m.width, m.height));
         let mut m = Monitor {
@@ -551,12 +568,15 @@ fn friendly(t: &DISPLAYCONFIG_PATH_TARGET_INFO) -> String {
         .unwrap_or_else(|| if is_internal(t.outputTechnology) { store::t("Écran intégré", "Built-in display") } else { store::t("Écran", "Display") }.into())
 }
 
-/// Nom lisible d'un écran, pour le journal d'activité.
+/// Nom lisible d'un écran, pour le journal d'activité : le même que dans l'interface.
 pub fn name(key: &str) -> String {
     let mut keys = Keys::default();
     query(true)
         .ok()
-        .and_then(|cfg| cfg.paths.iter().find(|p| keys.of(p) == key).map(|p| friendly(&p.targetInfo)))
+        .and_then(|cfg| {
+            let list = screens(&cfg);
+            list.iter().zip(names(&list)).find(|(p, _)| keys.of(p) == key).map(|(_, n)| n)
+        })
         .unwrap_or_else(|| store::t("Écran", "Display").into())
 }
 
@@ -733,6 +753,7 @@ fn change(key: &str, edit: impl FnOnce(&mut DEVMODEW)) -> Res<()> {
     let mut dm = devmode(&gdi, ENUM_CURRENT_SETTINGS.0).ok_or_else(not_active)?;
     let me = source_mode(&cfg, &p).ok_or_else(not_active)?;
     let (ow, oh) = (dm.dmPelsWidth as i32, dm.dmPelsHeight as i32);
+    let before = dm;
     edit(&mut dm);
     let (dw, dh) = (dm.dmPelsWidth as i32 - ow, dm.dmPelsHeight as i32 - oh);
     let (mx, my) = (me.position.x, me.position.y);
@@ -760,28 +781,47 @@ fn change(key: &str, edit: impl FnOnce(&mut DEVMODEW)) -> Res<()> {
         dm.dmFields |= DM_POSITION;
     }
     let flags = CDS_UPDATEREGISTRY | CDS_NORESET;
-    check(unsafe { ChangeDisplaySettingsExW(PCWSTR(gdi.as_ptr()), Some(&dm), None, flags, None) })?;
-    if dw != 0 || dh != 0 {
-        let mut done = HashSet::from([(luid64(p.sourceInfo.adapterId), p.sourceInfo.id)]);
-        for q in &cfg.paths {
-            let s = q.sourceInfo;
-            let Some(sm) = source_mode(&cfg, q) else { continue };
-            if !done.insert((luid64(s.adapterId), s.id)) {
-                continue;
+    // Chaque écran préparé, avec son mode d'origine. En cas d'échec on remet les origines :
+    // sinon ces préparatifs resteraient dans le registre et s'appliqueraient au prochain
+    // changement d'affichage, d'où qu'il vienne.
+    let mut staged: Vec<(Vec<u16>, DEVMODEW)> = Vec::new();
+    let stage = |staged: &mut Vec<(Vec<u16>, DEVMODEW)>, g: &[u16], orig: DEVMODEW, new: &DEVMODEW| -> Res<()> {
+        check(unsafe { ChangeDisplaySettingsExW(PCWSTR(g.as_ptr()), Some(new), None, flags, None) })?;
+        staged.push((g.to_vec(), orig));
+        Ok(())
+    };
+    let r = (|| {
+        stage(&mut staged, &gdi, before, &dm)?;
+        if dw != 0 || dh != 0 {
+            let mut done = HashSet::from([(luid64(p.sourceInfo.adapterId), p.sourceInfo.id)]);
+            for q in &cfg.paths {
+                let s = q.sourceInfo;
+                let Some(sm) = source_mode(&cfg, q) else { continue };
+                if !done.insert((luid64(s.adapterId), s.id)) {
+                    continue;
+                }
+                let (x, y) = (sm.position.x, sm.position.y);
+                let (nx, ny) = moved(x, y, sm.width as i32, sm.height as i32);
+                if (nx, ny) == (x, y) {
+                    continue;
+                }
+                let Some(g) = gdi_name(s.adapterId, s.id) else { continue };
+                let Some(orig) = devmode(&g, ENUM_CURRENT_SETTINGS.0) else { continue };
+                let mut d = orig;
+                d.Anonymous1.Anonymous2 = DEVMODEW_0_1 { dmPosition: POINTL { x: nx, y: ny }, ..unsafe { d.Anonymous1.Anonymous2 } };
+                d.dmFields = DM_POSITION;
+                stage(&mut staged, &g, orig, &d)?;
             }
-            let (x, y) = (sm.position.x, sm.position.y);
-            let (nx, ny) = moved(x, y, sm.width as i32, sm.height as i32);
-            if (nx, ny) == (x, y) {
-                continue;
-            }
-            let Some(g) = gdi_name(s.adapterId, s.id) else { continue };
-            let Some(mut d) = devmode(&g, ENUM_CURRENT_SETTINGS.0) else { continue };
-            d.Anonymous1.Anonymous2 = DEVMODEW_0_1 { dmPosition: POINTL { x: nx, y: ny }, ..unsafe { d.Anonymous1.Anonymous2 } };
-            d.dmFields = DM_POSITION;
-            check(unsafe { ChangeDisplaySettingsExW(PCWSTR(g.as_ptr()), Some(&d), None, flags, None) })?;
         }
+        check(unsafe { ChangeDisplaySettingsExW(PCWSTR::null(), None, None, CDS_TYPE(0), None) })
+    })();
+    if r.is_err() && !staged.is_empty() {
+        for (g, orig) in staged.iter().rev() {
+            let _ = unsafe { ChangeDisplaySettingsExW(PCWSTR(g.as_ptr()), Some(orig), None, flags, None) };
+        }
+        let _ = unsafe { ChangeDisplaySettingsExW(PCWSTR::null(), None, None, CDS_TYPE(0), None) };
     }
-    check(unsafe { ChangeDisplaySettingsExW(PCWSTR::null(), None, None, CDS_TYPE(0), None) })
+    r
 }
 
 pub fn set_scale(key: &str, pct: u32) -> Res<()> {
@@ -833,18 +873,26 @@ pub struct Range(pub u32, pub u32);
 impl Range {
     pub const FULL: Range = Range(0, 100);
 
+    /// Une plage invalide (fichier modifié à la main…) vaut la plage complète : jamais de
+    /// panique dans un calcul de luminosité.
+    fn sane(self) -> Range {
+        if self.valid() {
+            self
+        } else {
+            Range::FULL
+        }
+    }
+
     /// Valeur du curseur -> niveau envoyé à l'écran, en %.
     pub fn to_hw(self, pct: u32) -> u32 {
-        self.0 + (pct.min(100) * self.1.saturating_sub(self.0) + 50) / 100
+        let Range(lo, hi) = self.sane();
+        lo + (pct.min(100) * (hi - lo) + 50) / 100
     }
 
     /// Niveau lu sur l'écran -> valeur du curseur.
     pub fn to_slider(self, hw: u32) -> u32 {
-        let span = self.1.saturating_sub(self.0);
-        if span == 0 {
-            return 0;
-        }
-        ((hw.clamp(self.0, self.1) - self.0) * 100 + span / 2) / span
+        let Range(lo, hi) = self.sane();
+        ((hw.clamp(lo, hi) - lo) * 100 + (hi - lo) / 2) / (hi - lo)
     }
 
     pub fn valid(self) -> bool {
@@ -947,11 +995,51 @@ fn with_ddc(targets: &[Target], mut f: impl FnMut(&mut BTreeMap<String, u32>, &s
     }
 }
 
-/// Appelle `f` avec la poignée DDC/CI de l'écran `key`, s'il en a une.
-fn on_screen<T>(key: &str, f: impl FnOnce(&mut BTreeMap<String, u32>, HANDLE) -> T) -> Res<T> {
-    let ts = targets()?;
+/// Échec d'un échange DDC/CI. Le texte n'est produit qu'à l'affichage : le code décide
+/// sur le type, jamais sur un message traduit.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DdcError {
+    /// Pas de poignée DDC/CI : écran intégré ou inactif, DDC/CI coupé dans son menu.
+    Unreachable,
+    /// Bloqué dans la vue DDC/CI.
+    Blocked,
+    /// L'écran ne répond pas à ce code.
+    NoReply,
+    /// L'écran a refusé la valeur.
+    Refused,
+    /// Pas de chaîne de capacités.
+    NoCaps,
+}
+
+impl std::fmt::Display for DdcError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(match self {
+            DdcError::Unreachable => store::t("Cet écran ne répond pas en DDC/CI", "This display doesn't respond over DDC/CI"),
+            DdcError::Blocked => store::t("DDC/CI est bloqué pour cet écran", "DDC/CI is blocked for this display"),
+            DdcError::NoReply => store::t("L'écran ne répond pas à ce réglage", "The display doesn't respond to this setting"),
+            DdcError::Refused => store::t("L'écran n'a pas accepté le réglage", "The display didn't accept the setting"),
+            DdcError::NoCaps => store::t("L'écran n'a pas décrit ses commandes", "The display didn't describe its controls"),
+        })
+    }
+}
+
+/// À la frontière avec l'interface, l'erreur devient son texte : `?` suffit.
+impl From<DdcError> for String {
+    fn from(e: DdcError) -> String {
+        e.to_string()
+    }
+}
+
+pub type Ddc<T> = Result<T, DdcError>;
+
+/// Appelle `f` avec la poignée DDC/CI de l'écran `key`, s'il en a une. Seules les poignées
+/// de son moniteur Windows sont ouvertes, pas celles de tous les écrans.
+fn on_screen<T>(key: &str, f: impl FnOnce(&mut BTreeMap<String, u32>, HANDLE) -> T) -> Ddc<T> {
+    let ts = targets().map_err(|_| DdcError::Unreachable)?;
+    let Some(hm) = ts.iter().find(|t| t.0 == key).map(|t| t.2) else { return Err(DdcError::Unreachable) };
+    let group: Vec<Target> = ts.into_iter().filter(|t| t.2 == hm).collect();
     let (mut f, mut out) = (Some(f), None);
-    with_ddc(&ts, |max, k, h| {
+    with_ddc(&group, |max, k, h| {
         // `take` seulement pour le bon écran : sinon le premier parcouru la consommerait.
         if k != key {
             return;
@@ -960,10 +1048,7 @@ fn on_screen<T>(key: &str, f: impl FnOnce(&mut BTreeMap<String, u32>, HANDLE) ->
             out = Some(f(max, h));
         }
     });
-    out.ok_or_else(|| match tuning(key).blocked {
-        true => store::t("DDC/CI est bloqué pour cet écran", "DDC/CI is blocked for this display").into(),
-        false => store::t("Cet écran ne répond pas en DDC/CI", "This display doesn't respond over DDC/CI").into(),
-    })
+    out.ok_or(if tuning(key).blocked { DdcError::Blocked } else { DdcError::Unreachable })
 }
 
 /// (valeur, maximum) d'un code VCP, tels que l'écran les renvoie. Pour un réglage à
@@ -990,25 +1075,51 @@ fn ddc_read(h: HANDLE, code: u8) -> Option<Vcp> {
     })
 }
 
+/// Travail confié au thread WMI ; renvoie faux si la connexion semble perdue.
+type WmiJob = Box<dyn FnOnce(&IWbemServices) -> bool + Send>;
+static WMI: OnceLock<mpsc::Sender<WmiJob>> = OnceLock::new();
+
+fn wmi_connect() -> Option<IWbemServices> {
+    unsafe {
+        let loc: IWbemLocator = CoCreateInstance(&WbemLocator, None, CLSCTX_INPROC_SERVER).ok()?;
+        let none = BSTR::new();
+        let svc = loc.ConnectServer(&BSTR::from(r"ROOT\WMI"), &none, &none, &none, 0, &none, None).ok()?;
+        // 10, 0 : RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE
+        CoSetProxyBlanket(&svc, 10, 0, PCWSTR::null(), RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE, None, EOAC_NONE).ok()?;
+        Some(svc)
+    }
+}
+
 /// Écran intégré d'un portable : la luminosité passe par WMI. `None` sur un PC de bureau.
+/// Un seul thread COM garde la connexion : la rouvrir à chaque pas du curseur coûtait
+/// un thread, l'initialisation de COM et une connexion WMI par valeur.
 fn wmi<T: Send + 'static>(f: impl FnOnce(&IWbemServices) -> Option<T> + Send + 'static) -> Option<T> {
-    // COM dans un thread dédié, pour ne pas dépendre de l'appartement de l'appelant.
-    std::thread::spawn(move || unsafe {
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-        let r = (|| {
-            let loc: IWbemLocator = CoCreateInstance(&WbemLocator, None, CLSCTX_INPROC_SERVER).ok()?;
-            let none = BSTR::new();
-            let svc = loc.ConnectServer(&BSTR::from(r"ROOT\WMI"), &none, &none, &none, 0, &none, None).ok()?;
-            // 10, 0 : RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE
-            CoSetProxyBlanket(&svc, 10, 0, PCWSTR::null(), RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE, None, EOAC_NONE).ok()?;
-            f(&svc)
-        })();
-        CoUninitialize();
-        r
-    })
-    .join()
-    .ok()
-    .flatten()
+    let tx = WMI.get_or_init(|| {
+        let (tx, rx) = mpsc::channel::<WmiJob>();
+        std::thread::spawn(move || {
+            let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+            let mut svc: Option<IWbemServices> = None;
+            for job in rx {
+                if svc.is_none() {
+                    svc = wmi_connect();
+                }
+                // Échec : connexion rouverte au prochain appel.
+                if !svc.as_ref().is_some_and(job) {
+                    svc = None;
+                }
+            }
+        });
+        tx
+    });
+    let (rtx, rrx) = mpsc::channel();
+    let job: WmiJob = Box::new(move |svc| {
+        let r = f(svc);
+        let ok = r.is_some();
+        let _ = rtx.send(r);
+        ok
+    });
+    tx.send(job).ok()?;
+    rrx.recv().ok().flatten()
 }
 
 /// Objet WMI de l'écran dont le nom d'instance commence par `id`.
@@ -1061,6 +1172,9 @@ fn wmi_set_brightness(id: String, pct: u32) -> Res<()> {
 /// Une lecture ratée garde la valeur connue : un écran qui a déjà répondu reste réglable,
 /// sans quoi la luminosité disparaîtrait des menus au moindre raté du bus.
 pub fn read_brightness() -> bool {
+    // Une relecture complète à la fois, d'où qu'elle vienne (fond, capture de profil).
+    static READ: Mutex<()> = Mutex::new(());
+    let _one = lock(&READ);
     let Ok(ts) = targets() else { return false };
     let before = lock(&LEVELS).clone();
     let note = |k: &str, v: Option<u32>| {
@@ -1088,20 +1202,16 @@ pub fn read_brightness() -> bool {
     *l != before
 }
 
-fn refused() -> String {
-    store::t("L'écran n'a pas accepté le réglage", "The display didn't accept the setting").into()
-}
-
 /// Règle un code VCP continu à `pct` % de son maximum.
-fn ddc_level(max: &mut BTreeMap<String, u32>, key: &str, h: HANDLE, code: u8, pct: u32) -> Res<()> {
+fn ddc_level(max: &mut BTreeMap<String, u32>, key: &str, h: HANDLE, code: u8, pct: u32) -> Ddc<()> {
     let s = slot(key, code);
     match max.get(&s).copied().or_else(|| ddc_read(h, code).map(|x| x.1)).filter(|&m| m > 0) {
         Some(m) if unsafe { SetVCPFeature(h, code, (pct.min(100) * m + 50) / 100) } != 0 => {
             max.insert(s, m);
             Ok(())
         }
-        Some(_) => Err(refused()),
-        None => Err(store::t("L'écran ne répond pas à ce réglage", "The display doesn't respond to this setting").into()),
+        Some(_) => Err(DdcError::Refused),
+        None => Err(DdcError::NoReply),
     }
 }
 
@@ -1115,10 +1225,10 @@ pub fn set_brightness(key: &str, pct: u32) -> Res<()> {
             let _bus = lock(&BUS);
             wmi_set_brightness(id.clone(), tu.range.to_hw(pct))
         }
-        None => match on_screen(key, |max, h| ddc_level(max, key, h, tu.vcp, tu.range.to_hw(pct))) {
-            Ok(Err(e)) if e == refused() => Err(e),
-            Ok(Ok(())) => Ok(()),
-            _ => Err(no_brightness().into()),
+        None => match on_screen(key, |max, h| ddc_level(max, key, h, tu.vcp, tu.range.to_hw(pct))).and_then(|r| r) {
+            Ok(()) => Ok(()),
+            Err(DdcError::Refused) => Err(DdcError::Refused.into()),
+            Err(_) => Err(no_brightness().into()),
         },
     };
     if r.is_ok() {
@@ -1131,7 +1241,7 @@ pub fn set_brightness(key: &str, pct: u32) -> Res<()> {
 
 /// Codes VCP annoncés par l'écran dans sa chaîne de capacités MCCS, avec les valeurs
 /// permises des réglages à choix. Lent : une à trois secondes.
-pub fn vcp_caps(key: &str) -> Res<BTreeMap<u8, Vec<u8>>> {
+pub fn vcp_caps(key: &str) -> Ddc<BTreeMap<u8, Vec<u8>>> {
     on_screen(key, |_, h| {
         (0..2).find_map(|i| {
             if i > 0 {
@@ -1146,7 +1256,7 @@ pub fn vcp_caps(key: &str) -> Res<BTreeMap<u8, Vec<u8>>> {
         })
     })?
     .filter(|c| !c.is_empty())
-    .ok_or_else(|| store::t("L'écran n'a pas décrit ses commandes", "The display didn't describe its controls").into())
+    .ok_or(DdcError::NoCaps)
 }
 
 /// `...vcp(02 10 12 14(05 08 0B) 60(0F 11) D6(01 05))...` -> {0x02: [], 0x14: [5, 8, 11], ...}
@@ -1195,37 +1305,59 @@ pub fn parse_caps(s: &str) -> BTreeMap<u8, Vec<u8>> {
     out
 }
 
+/// Lit une suite de codes avec `read`. Certains écrans (BenQ EW3270U) renvoient la réponse
+/// précédente pour un code qu'ils ne savent pas lire : une réponse identique à la
+/// précédente est vérifiée en relisant le code après un code témoin (la luminosité).
+/// Si la relecture recopie le témoin, le code ne répond pas vraiment.
+fn read_codes(codes: &[u8], mut read: impl FnMut(u8) -> Option<Vcp>) -> Vec<(u8, Option<Vcp>)> {
+    let mut last = None; // dernière réponse reçue du bus
+    let mut out = Vec::new();
+    for &c in codes {
+        let mut r = read(c);
+        let suspect = r.is_some() && r == last && c != VCP_BRIGHTNESS;
+        last = r;
+        if suspect {
+            let witness = read(VCP_BRIGHTNESS);
+            last = witness;
+            if witness.is_some() && witness != r {
+                let again = read(c);
+                last = again;
+                r = again.filter(|v| Some(*v) != witness);
+            }
+        }
+        out.push((c, r));
+    }
+    out
+}
+
 /// Valeur actuelle et maximum de chaque code, `None` s'il ne répond pas.
-pub fn vcp_get(key: &str, codes: &[u8]) -> Res<Vec<(u8, Option<Vcp>)>> {
+pub fn vcp_get(key: &str, codes: &[u8]) -> Ddc<Vec<(u8, Option<Vcp>)>> {
     on_screen(key, |max, h| {
-        codes
-            .iter()
-            .map(|&c| {
-                let r = ddc_read(h, c);
-                if let Some((_, m)) = r.filter(|x| x.1 > 0) {
-                    max.insert(slot(key, c), m);
-                }
-                (c, r)
-            })
-            .collect()
+        let vals = read_codes(codes, |c| ddc_read(h, c));
+        for (c, r) in &vals {
+            if let Some((_, m)) = r.filter(|x| x.1 > 0) {
+                max.insert(slot(key, *c), m);
+            }
+        }
+        vals
     })
 }
 
 /// Envoie une valeur brute (réglage à choix, alimentation).
-pub fn vcp_set(key: &str, code: u8, value: u32) -> Res<()> {
-    on_screen(key, |_, h| unsafe { SetVCPFeature(h, code, value) } != 0)?.then_some(()).ok_or_else(refused)
+pub fn vcp_set(key: &str, code: u8, value: u32) -> Ddc<()> {
+    on_screen(key, |_, h| unsafe { SetVCPFeature(h, code, value) } != 0)?.then_some(()).ok_or(DdcError::Refused)
 }
 
 /// Règle un code continu à `pct` % de sa plage.
-pub fn vcp_level(key: &str, code: u8, pct: u32, range: Range) -> Res<()> {
+pub fn vcp_level(key: &str, code: u8, pct: u32, range: Range) -> Ddc<()> {
     on_screen(key, |max, h| ddc_level(max, key, h, code, range.to_hw(pct)))?
 }
 
-/// Extinction matérielle : envoie les valeurs d'alimentation (D6) à chaque écran externe.
-pub fn power_off_all(values: &[u32]) {
+/// Extinction matérielle : envoie à chaque écran ses valeurs d'alimentation (D6).
+pub fn power_off(values: &BTreeMap<String, Vec<u32>>) {
     let Ok(ts) = targets() else { return };
-    with_ddc(&ts, |_, _, h| {
-        for &v in values {
+    with_ddc(&ts, |_, k, h| {
+        for &v in values.get(k).map(Vec::as_slice).unwrap_or_default() {
             let _ = unsafe { SetVCPFeature(h, VCP_POWER, v) };
         }
     });
@@ -1252,9 +1384,10 @@ pub fn capture() -> Res<Snapshot> {
         if let Some(h) = hdr_info(p.targetInfo.adapterId, p.targetInfo.id) {
             s.hdr.insert(k.clone(), h);
         }
-        // Dernière valeur connue : relire DDC/CI ici ralentirait chaque action.
+        // Dernière valeur connue : relire DDC/CI ici ralentirait chaque action. On garde le
+        // niveau réel de l'écran : changer sa plage ensuite ne change pas le profil.
         if let Some(&b) = lock(&LEVELS).get(&k) {
-            s.brightness.insert(k, b);
+            s.brightness.insert(k.clone(), tuning(&k).range.to_hw(b));
         }
     }
     Ok(s)
@@ -1344,7 +1477,8 @@ pub fn restore(s: &Snapshot, x: Extras) -> Res<usize> {
                 let _ = apply_hdr(a, t, on);
             }
         }
-        if let (true, Some(&pct)) = (x.brightness, s.brightness.get(&k)) {
+        if let (true, Some(&hw)) = (x.brightness, s.brightness.get(&k)) {
+            let pct = tuning(&k).range.to_slider(hw);
             if lock(&LEVELS).get(&k) != Some(&pct) {
                 let _ = set_brightness(&k, pct);
             }
@@ -1382,6 +1516,37 @@ mod tests {
         assert_eq!(c.keys().copied().collect::<Vec<_>>(), [0x10, 0x12, 0x14, 0x62]);
         assert_eq!(c[&0x14], [1, 2]);
         assert!(parse_caps("(prot(monitor))").is_empty());
+    }
+
+    #[test]
+    fn echoed_replies_are_dropped() {
+        // Écran qui recopie la réponse précédente pour 0xE2 (BenQ EW3270U).
+        let screen = |c: u8, last: Option<Vcp>| match c {
+            0x10 => Some((55, 100)),
+            0x12 => Some((45, 100)),
+            0x16 | 0x18 => Some((100, 100)),
+            _ => last,
+        };
+        let mut last = None;
+        let vals = read_codes(&[0x12, 0xE2, 0x16, 0x18], |c| {
+            last = screen(c, last);
+            last
+        });
+        assert_eq!(vals, [(0x12, Some((45, 100))), (0xE2, None), (0x16, Some((100, 100))), (0x18, Some((100, 100)))]);
+    }
+
+    #[test]
+    fn twin_screens_get_their_number() {
+        let v = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert_eq!(numbered(v(&["HP E24", "AORUS", "HP E24"])), v(&["HP E24 (1)", "AORUS", "HP E24 (3)"]));
+        assert_eq!(numbered(v(&["A", "B"])), v(&["A", "B"]));
+    }
+
+    #[test]
+    fn invalid_ranges_never_panic() {
+        let r = Range(80, 20);
+        assert_eq!((r.to_hw(30), r.to_slider(30)), (30, 30));
+        assert_eq!(Range(50, 50).to_slider(70), 70);
     }
 
     #[test]
@@ -1433,6 +1598,10 @@ mod tests {
     /// sans rien appliquer (SDC_VALIDATE).
     #[test]
     fn live_configs_validate() {
+        // Intégration continue : pas d'écran à interroger.
+        if std::env::var_os("CI").is_some() {
+            return;
+        }
         let time = |label: &str, f: &dyn Fn()| {
             let t = std::time::Instant::now();
             f();
@@ -1490,7 +1659,8 @@ mod tests {
         }
         // Chaque écran dont la luminosité se lit doit être joignable un par un, pas
         // seulement le premier (régression de la 2.0.0 avec deux écrans externes).
-        for k in lock(&LEVELS).clone().keys().filter(|k| mons.iter().any(|m| &m.key == *k && !m.internal)) {
+        let levels = lock(&LEVELS).clone();
+        for k in levels.keys().filter(|k| mons.iter().any(|m| &m.key == *k && !m.internal)) {
             vcp_get(k, &[VCP_BRIGHTNESS]).unwrap_or_else(|e| panic!("{}: {e}", name(k)));
         }
         // Capacités et valeurs DDC/CI, en lecture seule.
@@ -1499,7 +1669,7 @@ mod tests {
             let caps = vcp_caps(&m.key);
             println!("capacités {} en {:?} : {caps:x?}", m.name, t.elapsed());
             if let Ok(c) = caps {
-                let codes: Vec<u8> = c.keys().copied().filter(|&k| [0x10, 0x12, 0x14, 0x60, 0x62, 0xD6].contains(&k)).collect();
+                let codes: Vec<u8> = c.keys().copied().filter(|&k| [0x10, 0x12, 0x14, 0x60, 0x62, 0xD6, 0xE2].contains(&k)).collect();
                 let vals = vcp_get(&m.key, &codes).unwrap();
                 println!("valeurs : {vals:x?}");
                 // Une entrée se lit telle quelle, même au-delà du « maximum » annoncé.

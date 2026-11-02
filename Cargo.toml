@@ -1,6 +1,6 @@
 [package]
 name = "monitormg"
-version = "2.0.3"
+version = "2.1.0"
 edition = "2021"
 license = "MIT"
 description = "Gestion des écrans pour Windows : disposition, résolution, fréquence, profils"
@@ -36,3 +36,9 @@ opt-level = "s"
 lto = true
 codegen-units = 1
 strip = true
+
+# Un verrou gardé dans un `match` ou trop longtemps a déjà pu figer l'application
+# (attente croisée avec le thread principal) : ces lints le signalent.
+[lints.clippy]
+significant_drop_in_scrutinee = "warn"
+significant_drop_tightening = "warn"

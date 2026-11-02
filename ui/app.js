@@ -3,24 +3,8 @@
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
-const $ = (s) => document.querySelector(s);
 const PLUG = ""; // écran avec sa prise : « appliqué au branchement »
-const NNBSP = LANG === "fr" ? " " : ""; // espace fine insécable avant « % », en français seulement
 const GLYPH = { ok: "", warn: "", error: "", progress: "" };
-
-/** Crée un élément : el("button", { class, text, onclick, ... }, ...enfants) */
-function el(tag, props = {}, ...kids) {
-  const e = document.createElement(tag);
-  for (const [k, v] of Object.entries(props)) {
-    if (v == null || v === false) continue;
-    if (k === "class") e.className = v;
-    else if (k === "text") e.textContent = v;
-    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
-    else e.setAttribute(k, v === true ? "" : v);
-  }
-  e.append(...kids.filter((k) => k != null && k !== false));
-  return e;
-}
 
 const icon = (glyph) => el("span", { class: "i", "aria-hidden": "true", text: glyph });
 
@@ -280,43 +264,6 @@ function tile(m, mirrors, act) {
   return b;
 }
 
-const overlaps = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-
-/**
- * Aimante un rectangle contre le bord le plus proche d'un autre écran, sans chevauchement,
- * comme dans les paramètres de Windows. Les bords proches s'alignent (haut, bas, centre).
- */
-function snap(r, others) {
-  let best = null;
-  let bestD = Infinity;
-  for (const o of others) {
-    const tolY = Math.min(r.h, o.h) * 0.08;
-    const tolX = Math.min(r.w, o.w) * 0.08;
-    const alignY = (y) => {
-      for (const t of [o.y, o.y + o.h - r.h, o.y + (o.h - r.h) / 2]) if (Math.abs(y - t) < tolY) return t;
-      return clamp(y, o.y - r.h + 1, o.y + o.h - 1);
-    };
-    const alignX = (x) => {
-      for (const t of [o.x, o.x + o.w - r.w, o.x + (o.w - r.w) / 2]) if (Math.abs(x - t) < tolX) return t;
-      return clamp(x, o.x - r.w + 1, o.x + o.w - 1);
-    };
-    const cands = [
-      { x: o.x - r.w, y: alignY(r.y) },
-      { x: o.x + o.w, y: alignY(r.y) },
-      { x: alignX(r.x), y: o.y - r.h },
-      { x: alignX(r.x), y: o.y + o.h },
-    ];
-    for (const c of cands) {
-      const rect = { ...c, w: r.w, h: r.h };
-      if (others.some((q) => overlaps(rect, q))) continue;
-      const d = Math.hypot(c.x - r.x, c.y - r.y);
-      if (d < bestD) [best, bestD] = [c, d];
-    }
-  }
-  return best ?? { x: r.x, y: r.y };
-}
-
 /** Sélection sans reconstruire le canevas : le focus clavier reste en place. */
 function select(key) {
   sel = key;
@@ -497,27 +444,17 @@ function brightnessSlider(m) {
     out.textContent = `${v}${NNBSP}%`;
     input.setAttribute("aria-valuetext", `${v}${NNBSP}%`);
   };
-  let inflight = false;
-  let queued = null;
-  const send = async (pct) => {
-    queued = pct;
-    if (inflight) return;
-    inflight = true;
-    while (queued !== null) {
-      const v = queued;
-      queued = null;
-      try {
-        await invoke("set_brightness", { key: m.key, pct: v });
-        const live = S.monitors.find((x) => x.key === m.key);
-        if (live) live.brightness = v;
-      } catch (e) {
-        queued = null;
-        toast(String(e), "error");
-        refreshSoon();
-      }
-    }
-    inflight = false;
-  };
+  const send = latest(
+    async (pct) => {
+      await invoke("set_brightness", { key: m.key, pct });
+      const live = S.monitors.find((x) => x.key === m.key);
+      if (live) live.brightness = pct;
+    },
+    (e) => {
+      toast(String(e), "error");
+      refreshSoon();
+    },
+  );
   input.addEventListener("input", () => {
     show(input.valueAsNumber);
     send(input.valueAsNumber);
@@ -552,8 +489,26 @@ let capsRunning = false;
 
 const ddcCapable = (m) => m.active && !m.internal && !m.mirror_of;
 const hasCaps = (sc) => !!sc && Object.keys(sc.caps ?? {}).length > 0;
-const DEFAULT_SCREEN = { name: "", hidden: false, blocked: false, vcp: null, range: [0, 100], features: [], caps: {} };
 const safeId = (key) => key.replace(/[^\w-]/g, "");
+let ddcStale = false; // vue à reconstruire une fois la saisie terminée
+let screenSaves = Promise.resolve();
+
+/**
+ * Préférences d'un écran : enregistrées une à la fois, chacune calculée à partir du
+ * dernier état enregistré (renvoyé par le backend), jamais d'un affichage périmé.
+ * `change(s)` renvoie les champs à modifier.
+ */
+function saveScreen(key, change) {
+  screenSaves = screenSaves.then(async () => {
+    const cur = S.screens[key];
+    try {
+      S.screens[key] = await invoke("set_screen", { key, screen: { ...cur, ...change(cur) } });
+    } catch (e) {
+      toast(String(e), "error");
+    }
+    refreshSoon();
+  });
+}
 
 /** Lit les commandes annoncées par chaque écran externe (1 à 3 s chacun), une seule fois. */
 async function loadCaps(force = false) {
@@ -575,14 +530,15 @@ async function loadCaps(force = false) {
   refresh();
 }
 
-/** Code de la luminosité choisi automatiquement, comme le fait le backend. */
-function autoBrightness(sc) {
-  if (!hasCaps(sc) || sc.caps[0x10]) return 0x10;
-  return [0x13, 0x6b].find((c) => sc.caps[c]) ?? 0x10;
-}
-
 function renderDdc() {
   if (VIEW !== "ddc" || !S) return;
+  // Pas de reconstruction sous un champ en cours de saisie : elle effacerait le texte.
+  const f = document.activeElement;
+  if (f?.closest("#ddc-screens") && f.matches("input:not([type=checkbox]), select")) {
+    ddcStale = true;
+    return;
+  }
+  ddcStale = false;
   $("#off-mode").value = S.panel.off;
   $("#power-signal").value = String(S.panel.power);
   const mons = S.monitors.filter((m) => m.active && !m.mirror_of);
@@ -618,11 +574,12 @@ function rangeInputs(id, range, label, onSave) {
 const switchInput = (id, checked, label, onchange) => el("input", { id, type: "checkbox", role: "switch", class: "switch", "aria-label": label, checked, onchange });
 
 function ddcScreen(m) {
-  const sc = { ...DEFAULT_SCREEN, ...S.screens[m.key] };
+  const sc = S.screens[m.key];
   const k = safeId(m.key);
-  const save = (patch) => run("set_screen", { key: m.key, screen: { ...sc, ...patch } });
+  // Champs à modifier, ou fonction du dernier état enregistré (listes de réglages).
+  const save = (change) => saveScreen(m.key, typeof change === "function" ? change : () => change);
   const ext = !m.internal;
-  const auto = autoBrightness(sc);
+  const auto = S.auto_vcp[m.key] ?? 0x10;
 
   const rows = [
     row(
@@ -681,9 +638,10 @@ function featureRows(m, sc, code, save) {
   const values = vcpValues(sc, code);
   const kind = code === VCP_POWER ? t("bouton marche/arrêt") : values.length ? t("{0} choix", values.length) : t("curseur");
   const warn = { [VCP_INPUT]: t("change la source affichée, l'écran peut quitter ce PC"), [VCP_POWER]: t("certains écrans ne se rallument qu'avec leur bouton") }[code];
-  const toggle = switchInput(`df-${k}`, !!f, t("Afficher {0} dans le panneau", vcpName(code)), (e) =>
-    save({ features: e.target.checked ? [...sc.features, { code, range: [0, 100], linked: false, stop: 100 }] : sc.features.filter((x) => x.code !== code) }),
-  );
+  const toggle = switchInput(`df-${k}`, !!f, t("Afficher {0} dans le panneau", vcpName(code)), (e) => {
+    const on = e.target.checked;
+    save((s) => ({ features: [...s.features.filter((x) => x.code !== code), ...(on ? [{ code, range: [0, 100], linked: false, stop: 100 }] : [])] }));
+  });
   const label = el(
     "div",
     { class: "row-label feature-label" },
@@ -693,7 +651,7 @@ function featureRows(m, sc, code, save) {
   const rows = [el("div", { class: "row" }, label, toggle)];
   if (!f || values.length || code === VCP_POWER) return rows;
 
-  const patch = (p) => save({ features: sc.features.map((x) => (x.code === code ? { ...x, ...p } : x)) });
+  const patch = (p) => save((s) => ({ features: s.features.map((x) => (x.code === code ? { ...x, ...p } : x)) }));
   const linked = switchInput(`dl-${k}`, f.linked, t("Suit la luminosité"), (e) => patch({ linked: e.target.checked }));
   const stop = el("input", {
     id: `ds-${k}`,
@@ -729,7 +687,7 @@ async function addCode(sc, save) {
   if (!(code > 0 && code <= 0xff)) return toast(t("Code invalide : entrez une valeur de 0x01 à 0xFF"), "error");
   if (VCP_SYSTEM.has(code)) return toast(t("Ce code est une commande (remise à zéro…), pas un réglage"), "error");
   if (sc.features.some((f) => f.code === code)) return toast(t("Ce réglage est déjà dans le panneau"), "warn");
-  save({ features: [...sc.features, { code, range: [0, 100], linked: false, stop: 100 }] });
+  save((s) => ({ features: [...s.features.filter((f) => f.code !== code), { code, range: [0, 100], linked: false, stop: 100 }] }));
 }
 
 /** Tous les codes annoncés par l'écran, pour le diagnostic. */
@@ -845,7 +803,7 @@ function profileMenu(p, idx, anchor, at) {
     { icon: "", label: t("Raccourci clavier…"), hint: p.hotkey ? keyParts(p.hotkey).join("+") : null, run: () => hotkeyProfile(p) },
     { icon: "", label: t("Raccourci sur le bureau"), run: () => run("profile_shortcut", { id: p.id }) },
     { icon: "", label: t("Réglages appliqués…"), run: () => extrasProfile(p) },
-    { icon: "", label: t("Remplacer par l'affichage actuel"), run: () => run("profile_update", { id: p.id }) },
+    { icon: "", label: t("Remplacer par l'affichage actuel…"), run: () => replaceProfile(p) },
     "-",
     { icon: "", label: t("Monter"), disabled: idx === 0, run: () => run("profile_move", { id: p.id, to: idx - 1 }) },
     { icon: "", label: t("Descendre"), disabled: idx === last, run: () => run("profile_move", { id: p.id, to: idx + 1 }) },
@@ -899,6 +857,19 @@ async function extrasProfile(p) {
 async function renameProfile(p) {
   const name = await askName(t("Renommer le profil"), p.name, t("Renommer"));
   if (name && name !== p.name) run("profile_rename", { id: p.id, name });
+}
+
+/** Écrase le profil : rien ne permet de revenir à l'ancien contenu, on demande d'abord. */
+async function replaceProfile(p) {
+  const r = await openDialog(
+    t("Remplacer {0} ?", p.name),
+    [el("p", { text: t("Le profil prendra la disposition et les réglages actuels. Son contenu actuel sera perdu.") })],
+    [
+      { label: t("Remplacer"), value: "ok", primary: true },
+      { label: CANCEL, value: "cancel" },
+    ],
+  );
+  if (r === "ok") run("profile_update", { id: p.id });
 }
 
 async function deleteProfile(p) {
@@ -1265,6 +1236,8 @@ $("#step").addEventListener("change", (e) => savePanel({ step: Number(e.target.v
 $("#off-mode").addEventListener("change", (e) => savePanel({ off: e.target.value }));
 $("#power-signal").addEventListener("change", (e) => savePanel({ power: Number(e.target.value) }));
 $("#ddc-reread").addEventListener("click", () => loadCaps(true));
+// Saisie terminée : la vue mise de côté pendant la frappe est reconstruite.
+$("#ddc-screens").addEventListener("focusout", () => ddcStale && setTimeout(renderDdc, 0));
 $("#autostart").addEventListener("change", (e) => run("set_autostart", { on: e.target.checked }, e.target.checked ? t("MonitorMG se lancera avec Windows") : t("Lancement avec Windows désactivé")));
 const saveConfirm = () => run("set_confirm", { on: $("#confirm-on").checked, secs: Number($("#confirm-secs").value) });
 $("#confirm-on").addEventListener("change", saveConfirm);

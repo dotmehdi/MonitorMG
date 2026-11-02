@@ -4,24 +4,8 @@
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 const win = window.__TAURI__.window.getCurrentWindow();
-const NNBSP = LANG === "fr" ? " " : "";
-const $ = (s) => document.querySelector(s);
-
 let S = null;
 let holding = false; // curseur tenu : pas de reconstruction sous le pointeur
-
-function el(tag, props = {}, ...kids) {
-  const e = document.createElement(tag);
-  for (const [k, v] of Object.entries(props)) {
-    if (v == null || v === false) continue;
-    if (k === "class") e.className = v;
-    else if (k === "text") e.textContent = v;
-    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
-    else e.setAttribute(k, v === true ? "" : v);
-  }
-  e.append(...kids.filter((k) => k != null && k !== false));
-  return e;
-}
 
 const glyph = (g) => el("span", { class: "i", "aria-hidden": "true", text: g });
 /** Message en bas du panneau ; le panneau grandit pour le montrer sans rogner la liste. */
@@ -30,28 +14,6 @@ function say(text) {
   if (S) fit();
 }
 const close = () => win.close();
-
-/** Envoi au fil du glissement : DDC/CI est lent, une requête à la fois, la dernière valeur gagne. */
-function queue(send, label) {
-  let inflight = false;
-  let queued = null;
-  return async (v) => {
-    queued = v;
-    if (inflight) return;
-    inflight = true;
-    while (queued !== null) {
-      const x = queued;
-      queued = null;
-      try {
-        await send(x);
-      } catch (e) {
-        queued = null;
-        say(t("{0} : {1}", label, e));
-      }
-    }
-    inflight = false;
-  };
-}
 
 /** Ligne à curseur : icône, curseur, valeur. `value` null : en attente de l'écran. */
 function sliderRow({ id, label, icon, value, onChange }) {
@@ -63,7 +25,7 @@ function sliderRow({ id, label, icon, value, onChange }) {
     out.textContent = `${v}${NNBSP}%`;
     input.setAttribute("aria-valuetext", out.textContent);
   };
-  const send = queue(onChange, label);
+  const send = latest(onChange, (e) => say(t("{0} : {1}", label, e)));
   input.addEventListener("input", () => {
     show(input.valueAsNumber);
     send(input.valueAsNumber);
@@ -158,18 +120,20 @@ function monitorBlock(m, withBrightness) {
   const head = el("div", { class: "fly-mon-head" }, el("h2", { class: "fly-name", text: nameOf(m) }));
   let powerBtn = null;
   if (power) {
-    powerBtn = el("button", { class: "icon-btn", title: t("Éteindre l'écran"), "aria-label": t("Éteindre {0}", nameOf(m)), disabled: true }, glyph(""));
+    powerBtn = el("button", { class: "icon-btn", title: t("Éteindre l'écran"), "aria-label": t("Éteindre {0}", nameOf(m)), disabled: true }, glyph("\uE7E8"));
     powerBtn.addEventListener("click", async () => {
       try {
-        const on = await invoke("ddc_power", { key: m.key });
-        controls.get(VCP_POWER)?.(on ? 1 : 4);
+        // Éteint (ou état inconnu) : on allume ; allumé : on éteint. Jamais d'extinction à l'aveugle.
+        const on = powerBtn.getAttribute("aria-pressed") === "true";
+        controls.get(VCP_POWER)?.(await invoke("ddc_power", { key: m.key, on }));
       } catch (e) {
         say(String(e));
       }
     });
     controls.set(VCP_POWER, (v) => {
-      const off = v != null && v !== 1;
-      powerBtn.disabled = v == null;
+      // Valeur D6 : 1 allumé, autre chose éteint ; null : état illisible, on propose d'allumer.
+      const off = v !== 1;
+      powerBtn.disabled = false;
       powerBtn.setAttribute("aria-pressed", String(off));
       powerBtn.title = off ? t("Allumer l'écran") : t("Éteindre l'écran");
       powerBtn.setAttribute("aria-label", t(off ? "Allumer {0}" : "Éteindre {0}", nameOf(m)));

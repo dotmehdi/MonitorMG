@@ -11,12 +11,21 @@ use std::time::SystemTime;
 const MAX: u64 = 512 * 1024;
 const TAIL: u64 = 128 * 1024;
 
+/// Gravité d'une entrée. `Info` relève du diagnostic : masquée dans la vue Activité.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Level {
+    Ok,
+    Warn,
+    Error,
+    Info,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Entry {
     /// Millisecondes depuis 1970.
     pub at: u64,
-    /// ok, warn, error ou info (info : diagnostic, masqué dans la vue Activité).
-    pub level: String,
+    pub level: Level,
     /// Fenêtre, Menu, Raccourci, Branchement, Bureau ou Système.
     pub source: String,
     pub text: String,
@@ -33,20 +42,23 @@ fn file() -> PathBuf {
     dir().join("activite.jsonl")
 }
 
-pub fn write(level: &str, source: &str, text: &str) -> Entry {
+pub fn write(level: Level, source: &str, text: &str) -> Entry {
     write_with(level, source, text, false)
 }
 
-pub fn write_with(level: &str, source: &str, text: &str, undo: bool) -> Entry {
+pub fn write_with(level: Level, source: &str, text: &str, undo: bool) -> Entry {
     let at = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
-    let e = Entry { at, level: level.into(), source: source.into(), text: text.into(), undo };
+    let e = Entry { at, level, source: source.into(), text: text.into(), undo };
     let f = file();
     let _ = fs::create_dir_all(dir());
     if fs::metadata(&f).is_ok_and(|m| m.len() > MAX) {
         let _ = fs::rename(&f, f.with_extension("1.jsonl"));
     }
     if let (Ok(mut out), Ok(line)) = (OpenOptions::new().create(true).append(true).open(&f), serde_json::to_string(&e)) {
-        let _ = writeln!(out, "{line}");
+        // Une seule écriture par ligne : deux threads (ou le processus d'un raccourci
+        // bureau) ne peuvent pas entremêler leurs lignes.
+        let _ = out.write_all(format!("{line}
+").as_bytes());
     }
     e
 }
@@ -66,7 +78,7 @@ pub fn recent(n: usize) -> Vec<Entry> {
 mod tests {
     #[test]
     fn entries_roundtrip_as_json_lines() {
-        let e = super::Entry { at: 1, level: "ok".into(), source: "Menu".into(), text: "Profil « Bureau » appliqué".into(), undo: true };
+        let e = super::Entry { at: 1, level: super::Level::Ok, source: "Menu".into(), text: "Profil « Bureau » appliqué".into(), undo: true };
         let line = serde_json::to_string(&e).unwrap();
         assert!(!line.contains('\n'));
         let back: super::Entry = serde_json::from_str(&line).unwrap();

@@ -9,7 +9,10 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const v = JSON.parse(readFileSync(join(root, "tauri.conf.json"), "utf8")).version;
 
-execSync("npx --yes @tauri-apps/cli@2 build", { cwd: root, stdio: "inherit" });
+// Tauri CLI à la version figée par package-lock.json (sommes de contrôle comprises) :
+// rien n'est téléchargé à la volée au moment de construire l'installateur.
+execSync("npm ci --no-audit --no-fund", { cwd: root, stdio: "inherit" });
+execSync("npx --no-install tauri build", { cwd: root, stdio: "inherit" });
 
 const dist = join(root, "dist");
 rmSync(dist, { recursive: true, force: true });

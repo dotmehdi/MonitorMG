@@ -15,7 +15,7 @@ http
       return res.end(fs.readFileSync(path.join(__dirname, "mock.js")));
     }
     const file = path.join(root, url.pathname === "/" ? "index.html" : url.pathname);
-    if (!file.startsWith(root) || !fs.existsSync(file)) {
+    if (!file.startsWith(root + path.sep) || !fs.existsSync(file)) {
       res.writeHead(404);
       return res.end();
     }

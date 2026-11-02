@@ -2,7 +2,8 @@
 //! Windows : raccourcis bureau, couleur d'accent, thème de la barre des tâches, langue.
 
 use crate::display::{self, Range, Res, Snapshot, Tile};
-use serde::{Deserialize, Serialize};
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::{fs, path::PathBuf, sync::OnceLock, time::SystemTime};
 use windows::core::{w, Interface, HSTRING, PCWSTR};
@@ -131,28 +132,105 @@ impl Screen {
         display::Tune { vcp: self.brightness_code(), range: self.range, blocked: self.blocked }
     }
 
+    /// Valeur acceptable pour un réglage à choix (ou l'alimentation) : une de celles que
+    /// l'écran annonce. Sans liste annoncée, les valeurs MCCS d'alimentation.
+    pub fn allows(&self, code: u8, value: u32) -> bool {
+        match self.caps.get(&code).filter(|v| !v.is_empty()) {
+            Some(list) => list.iter().any(|&v| u32::from(v) == value),
+            None => code != display::VCP_POWER || [1, 4, 5].contains(&value),
+        }
+    }
+
     /// Préférences reçues de l'interface, vérifiées. Les capacités restent celles lues
     /// sur l'écran.
-    pub fn checked(mut self, caps: BTreeMap<u8, Vec<u8>>) -> Res<Self> {
+    pub fn checked(self, caps: BTreeMap<u8, Vec<u8>>) -> Res<Self> {
         let bad = || t("Plage invalide : le minimum doit rester sous le maximum", "Invalid range: the minimum must stay below the maximum").to_string();
-        self.name = self.name.trim().chars().filter(|c| !c.is_control()).take(40).collect();
-        self.vcp = self.vcp.filter(|&c| c != 0);
-        self.caps = caps;
-        if !self.range.valid() {
+        if !self.range.valid() || self.features.iter().any(|f| !f.range.valid()) {
             return Err(bad());
         }
         if self.features.iter().any(|f| COMMANDS.contains(&f.code)) {
             return Err(t("Ce code est une commande (remise à zéro…), pas un réglage", "This code is a command (reset…), not a setting").into());
         }
+        Ok(Self { caps, ..self }.repaired())
+    }
+
+    /// Remet dans les bornes ce qui ne l'est pas : à la lecture du fichier, on corrige
+    /// plutôt que de tout refuser.
+    pub fn repaired(mut self) -> Self {
+        self.name = self.name.trim().chars().filter(|c| !c.is_control()).take(40).collect();
+        self.vcp = self.vcp.filter(|&c| c != 0);
+        if !self.range.valid() {
+            self.range = Range::FULL;
+        }
         let mut seen = BTreeSet::new();
-        self.features.retain(|f| f.code != 0 && seen.insert(f.code));
+        self.features.retain(|f| f.code != 0 && !COMMANDS.contains(&f.code) && seen.insert(f.code));
         for f in &mut self.features {
             if !f.range.valid() {
-                return Err(bad());
+                f.range = Range::FULL;
             }
             f.stop = f.stop.clamp(1, 100);
         }
-        Ok(self)
+        self
+    }
+}
+
+/// Champ lu avec indulgence : une valeur inconnue prend la valeur par défaut au lieu de
+/// rendre tout le fichier illisible.
+fn lenient<'de, D: Deserializer<'de>, T: DeserializeOwned + Default>(d: D) -> Result<T, D::Error> {
+    Ok(serde_json::Value::deserialize(d).ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default())
+}
+
+/// « Éteindre les écrans » : veille de Windows, signal DDC/CI, ou les deux.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum OffMode {
+    #[default]
+    Soft,
+    Hard,
+    Both,
+}
+
+/// Signal DDC/CI d'extinction (code D6), enregistré sous sa valeur MCCS : 4 veille,
+/// 5 arrêt, 6 les deux à la suite.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+#[serde(try_from = "u32", into = "u32")]
+pub enum PowerSignal {
+    Standby,
+    #[default]
+    Off,
+    Both,
+}
+
+impl TryFrom<u32> for PowerSignal {
+    type Error = String;
+    fn try_from(v: u32) -> Result<Self, String> {
+        match v {
+            4 => Ok(Self::Standby),
+            5 => Ok(Self::Off),
+            6 => Ok(Self::Both),
+            _ => Err(format!("signal d'extinction inconnu : {v}")),
+        }
+    }
+}
+
+impl From<PowerSignal> for u32 {
+    fn from(p: PowerSignal) -> u32 {
+        match p {
+            PowerSignal::Standby => 4,
+            PowerSignal::Off => 5,
+            PowerSignal::Both => 6,
+        }
+    }
+}
+
+impl PowerSignal {
+    /// Valeurs D6 à envoyer pour éteindre, dans l'ordre.
+    pub fn values(self) -> &'static [u32] {
+        match self {
+            Self::Standby => &[4],
+            Self::Off => &[5],
+            Self::Both => &[4, 5],
+        }
     }
 }
 
@@ -162,28 +240,24 @@ impl Screen {
 pub struct Panel {
     /// Un seul curseur pour tous les écrans.
     pub linked: bool,
-    /// Valeur DDC/CI d'extinction (code D6) : 4 veille, 5 arrêt, 6 les deux.
-    pub power: u32,
-    /// « Éteindre les écrans » : "soft" (Windows), "hard" (DDC/CI) ou "both".
-    pub off: String,
+    #[serde(deserialize_with = "lenient")]
+    pub power: PowerSignal,
+    #[serde(deserialize_with = "lenient")]
+    pub off: OffMode,
     /// Pas des raccourcis de luminosité, en %.
     pub step: u32,
 }
 
 impl Default for Panel {
     fn default() -> Self {
-        Self { linked: false, power: 5, off: "soft".into(), step: 10 }
+        Self { linked: false, power: PowerSignal::default(), off: OffMode::default(), step: 10 }
     }
 }
 
 impl Panel {
-    /// Valeurs D6 à envoyer pour éteindre.
-    pub fn power_values(&self) -> &'static [u32] {
-        match self.power {
-            4 => &[4],
-            6 => &[4, 5],
-            _ => &[5],
-        }
+    pub fn checked(mut self) -> Self {
+        self.step = self.step.clamp(1, 50);
+        self
     }
 }
 
@@ -241,13 +315,25 @@ impl Store {
     pub fn load() -> Self {
         let f = file();
         let Ok(text) = fs::read_to_string(&f) else { return Self::default() };
-        serde_json::from_str(&text).unwrap_or_else(|e| {
+        let s: Store = serde_json::from_str(&text).unwrap_or_else(|e| {
             // Fichier abîmé : on le met de côté, daté, plutôt que de l'écraser au prochain enregistrement.
             let ms = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default().as_secs();
             let _ = fs::rename(&f, f.with_file_name(format!("config-{ms}.bak.json")));
-            crate::journal::write("error", t("Système", "System"), &tr!("Configuration illisible, mise de côté : {e}", "Unreadable configuration, set aside: {e}"));
+            crate::journal::write(crate::journal::Level::Error, t("Système", "System"), &tr!("Configuration illisible, mise de côté : {e}", "Unreadable configuration, set aside: {e}"));
             Self::default()
-        })
+        });
+        s.sanitized()
+    }
+
+    /// Remet dans les bornes ce qui vient du fichier : une plage inversée fausserait les
+    /// calculs de luminosité, un délai nul annulerait chaque changement aussitôt.
+    fn sanitized(mut self) -> Self {
+        self.confirm.secs = self.confirm.secs.clamp(5, 120);
+        self.panel = self.panel.checked();
+        for sc in self.screens.values_mut() {
+            *sc = std::mem::take(sc).repaired();
+        }
+        self
     }
 
     pub fn save(&self) -> Res<()> {
@@ -426,13 +512,42 @@ mod tests {
     }
 
     #[test]
+    fn bad_values_in_the_file_are_repaired() {
+        let json = r#"{"confirm":{"secs":0},"panel":{"power":9,"off":"nope","step":0},
+            "screens":{"a":{"range":[80,20],"features":[{"code":18,"range":[60,10],"stop":0},{"code":4},{"code":18}]}}}"#;
+        let s = serde_json::from_str::<Store>(json).unwrap().sanitized();
+        assert_eq!((s.confirm.secs, s.panel.power, s.panel.off, s.panel.step), (5, PowerSignal::Off, OffMode::Soft, 1));
+        let a = &s.screens["a"];
+        assert_eq!(a.range, Range::FULL);
+        assert_eq!(a.features, [Feature { code: 18, range: Range::FULL, linked: false, stop: 1 }]);
+    }
+
+    #[test]
+    fn power_signal_keeps_its_file_format() {
+        let p: Panel = serde_json::from_str(r#"{"power":4,"off":"both"}"#).unwrap();
+        assert_eq!((p.power, p.off, p.power.values()), (PowerSignal::Standby, OffMode::Both, &[4][..]));
+        assert_eq!(serde_json::to_value(&p).unwrap()["power"], 4);
+        assert_eq!(PowerSignal::Both.values(), [4, 5]);
+    }
+
+    #[test]
+    fn only_announced_values_are_allowed() {
+        let s = Screen { caps: BTreeMap::from([(0x60, vec![0x0F, 0x11]), (0xD6, vec![1, 5])]), ..Default::default() };
+        assert!(s.allows(0x60, 0x11) && !s.allows(0x60, 0x03));
+        assert!(s.allows(0xD6, 5) && !s.allows(0xD6, 4));
+        // Capacités inconnues : valeurs MCCS d'alimentation seulement.
+        let none = Screen::default();
+        assert!(none.allows(0xD6, 4) && !none.allows(0xD6, 7));
+    }
+
+    #[test]
     fn old_configs_get_default_settings() {
         let s: Store = serde_json::from_str(r#"{"profiles":[]}"#).unwrap();
         assert!(s.confirm.on);
         assert_eq!(s.confirm.secs, 15);
         let s: Store = serde_json::from_str(r#"{"confirm":{"on":false}}"#).unwrap();
         assert_eq!((s.confirm.on, s.confirm.secs), (false, 15));
-        assert_eq!((s.panel.power, s.panel.step, s.panel.off.as_str()), (5, 10, "soft"));
+        assert_eq!((s.panel.power, s.panel.step, s.panel.off), (PowerSignal::Off, 10, OffMode::Soft));
         let s: Store = serde_json::from_str(r#"{"screens":{"a":{"hidden":true,"features":[{"code":18}]}}}"#).unwrap();
         let a = &s.screens["a"];
         assert!(a.hidden && a.range == Range::FULL && a.features[0].stop == 100);

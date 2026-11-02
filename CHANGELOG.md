@@ -1,5 +1,40 @@
 # Journal des modifications
 
+## 2.1.0
+
+Corrections issues de l'audit du code (`docs/AUDIT-2.md`).
+
+### Fiabilité
+
+- Deux situations pouvaient figer toute l'application (icône, menu, fenêtres, raccourcis), sans message : un raccourci clavier, la fermeture du panneau ou de la fenêtre au moment où le menu de notification se reconstruisait ou la fenêtre s'ouvrait. Corrigé, et les lints Clippy de verrous sont activés.
+- Raccourcis bureau : appliqués par MonitorMG s'il tourne déjà (journal, annulation, réglages DDC/CI), sinon directement mais avec les réglages DDC/CI. Un écran bloqué n'est plus interrogé.
+- Une configuration modifiée à la main n'arrête plus la relecture de la luminosité : les valeurs hors bornes sont corrigées à la lecture.
+- Un raccourci refusé par Windows ne fait plus perdre le précédent.
+- Un changement de mode interrompu ne laisse plus de réglages en attente dans le registre.
+- Vue DDC/CI : deux modifications rapprochées sont gardées toutes les deux, et un nom en cours de saisie n'est plus effacé par un rafraîchissement.
+- « Remplacer par l'affichage actuel » ne fige plus le menu pendant la relecture des écrans, et demande confirmation.
+- Bouton marche/arrêt du panneau : un état illisible propose d'allumer, jamais d'éteindre.
+- Les réponses recopiées par certains écrans (BenQ EW3270U) ne s'affichent plus comme des valeurs.
+- L'extinction DDC/CI ne vise que les écrans qui l'annoncent, avec leurs seules valeurs.
+- Deux écrans du même modèle prennent leur numéro dans leur nom.
+- Les profils gardent le niveau réel de luminosité : changer la plage d'un écran ne les modifie plus.
+
+### Performances
+
+- Le menu de notification n'est reconstruit qu'une fois par rafale d'événements, et seulement si son contenu change.
+- Portables : la connexion WMI est gardée au lieu d'être rouverte à chaque pas du curseur.
+- Un échange DDC/CI n'ouvre plus que les poignées de l'écran visé ; un seul thread suit les rafales de branchement.
+
+### Sécurité
+
+- Version de Tauri CLI figée (`package.json`, `package-lock.json`) : rien n'est téléchargé à la volée pendant la publication.
+- Fenêtre principale réduite aux permissions d'événements ; valeurs DDC/CI à choix vérifiées par le backend.
+
+### Code
+
+- `main.rs` découpé en modules (`views`, `tray`, `hotkeys`, `watch`), erreurs DDC/CI typées, `enum` pour les réglages à choix, outils de l'interface partagés (`ui/common.js`).
+- 19 tests Rust, 4 tests de l'interface, intégration continue (GitHub Actions).
+
 ## 2.0.3
 
 - Avec plusieurs écrans externes, seul le premier répondait : luminosité, réglages DDC/CI et lecture des commandes échouaient sur les autres (« Cet écran ne permet pas de régler la luminosité »). Corrigé ; le test réel vérifie désormais chaque écran.

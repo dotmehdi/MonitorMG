@@ -1,9 +1,9 @@
 {
   "identifier": "main",
-  "description": "Fenêtre principale : toutes les commandes de l'application, sauf la confirmation réservée à sa fenêtre.",
+  "description": "Fenêtre principale : les événements et les commandes de l'application, sauf la confirmation réservée à sa fenêtre. Pas de permission de base de Tauri au-delà des événements.",
   "windows": ["main"],
   "permissions": [
-    "core:default",
+    "core:event:default",
     "allow-activity",
     "allow-identify-cmd",
     "allow-open-data-dir",

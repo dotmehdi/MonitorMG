@@ -1,0 +1,32 @@
+# Vérifications à chaque envoi : lints, tests Rust, tests de l'interface.
+# Actions figées par empreinte de commit : une étiquette déplacée ne change rien ici.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+      - name: Rust
+        run: rustup toolchain install stable --profile minimal --component clippy
+      - name: Clippy (avertissements bloquants, lints de verrous compris)
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Tests Rust
+        # Sans écran sur le serveur : le test réel se retire seul (variable CI).
+        run: cargo test
+      - name: Interface
+        run: |
+          npm ci --no-audit --no-fund
+          npm run test:ui
+          foreach ($f in Get-ChildItem ui/*.js, dev/*.js) { node --check $f.FullName; if ($LASTEXITCODE) { exit 1 } }

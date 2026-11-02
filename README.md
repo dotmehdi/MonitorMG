@@ -6,8 +6,8 @@ Gérez vos écrans sous Windows 10 et 11 sans passer par les Paramètres : activ
 
 | Édition | Pour qui | Comment |
 | --- | --- | --- |
-| Installateur `MonitorMG-2.0.3-setup.exe` | La plupart des utilisateurs | Double-cliquez. Aucun droit administrateur n'est demandé ; MonitorMG s'installe pour votre compte et apparaît dans le menu Démarrer. |
-| Portable `MonitorMG-2.0.3-portable.zip` | Clé USB, poste sans installation | Décompressez dans un dossier personnel et lancez `MonitorMG.exe`. Profils et journal restent dans le dossier `data`, à côté. |
+| Installateur `MonitorMG-2.1.0-setup.exe` | La plupart des utilisateurs | Double-cliquez. Aucun droit administrateur n'est demandé ; MonitorMG s'installe pour votre compte et apparaît dans le menu Démarrer. |
+| Portable `MonitorMG-2.1.0-portable.zip` | Clé USB, poste sans installation | Décompressez dans un dossier personnel et lancez `MonitorMG.exe`. Profils et journal restent dans le dossier `data`, à côté. |
 
 Prérequis : Microsoft Edge WebView2, déjà présent sur Windows 11. L'installateur l'ajoute si besoin ; pour l'édition portable, [téléchargez-le ici](https://go.microsoft.com/fwlink/p/?LinkId=2124703).
 
@@ -44,7 +44,7 @@ Un changement risqué (résolution, fréquence, orientation, activation, project
 ### Ligne de commande
 
 ```
-MonitorMG.exe --profile <id ou nom>   applique un profil puis quitte
+MonitorMG.exe --profile <id ou nom>   applique un profil (par MonitorMG s'il tourne déjà, sinon directement, puis quitte)
 MonitorMG.exe --minimized             démarre dans la zone de notification
 ```
 
@@ -62,6 +62,8 @@ MonitorMG fonctionne entièrement sur votre ordinateur. Il ne se connecte jamais
 - **Un écran n'apparaît pas dans le panneau, ou la vue DDC/CI dit « Commandes illisibles »** : activez DDC/CI dans le menu de l'écran. Certains adaptateurs et câbles (HDMI optique, stations d'accueil bon marché) ne le transmettent pas. Si le curseur de luminosité ne change rien, essayez un autre code de luminosité dans la vue DDC/CI.
 - **Le PC ralentit quand le panneau s'ouvre** : bloquez DDC/CI pour l'écran en cause dans la vue DDC/CI.
 - **Un écran éteint par DDC/CI ne se rallume pas depuis MonitorMG** : certains écrans disparaissent de Windows une fois éteints. Rallumez-le avec son bouton, ou choisissez le signal « Veille » dans la vue DDC/CI.
+- **Deux écrans du même modèle** (dock avec deux écrans identiques) : MonitorMG ajoute leur numéro à leur nom, « HP E24 (1) » et « HP E24 (2) ». La vue DDC/CI permet de leur donner un nom plus parlant.
+- **MonitorMG et un autre logiciel DDC/CI (Twinkle Tray, Monitorian…) en même temps** : ils se disputent le bus des écrans et se corrigent l'un l'autre. Gardez-en un seul.
 - **La fenêtre ne s'ouvre pas** : un message propose d'installer WebView2.
 - **Avertissement SmartScreen à l'installation** : l'exécutable n'est pas encore signé. Cliquez sur « Informations complémentaires », puis « Exécuter quand même ».
 

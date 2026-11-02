@@ -84,6 +84,9 @@
     c: screen({ name: L("Vertical", "Vertical"), caps: { 16: [], 18: [], 98: [], 214: [1, 4, 5] }, features: [feat(0x12, { linked: true, stop: 60 })] }),
   };
   const ddc = { 0x12: 50, 0x62: 2, 0x60: 15, 0x14: 5, 0xd6: 1 };
+  // Comme le backend : chaque écran branché a ses préférences, par défaut au besoin.
+  for (const m of state.monitors) state.screens[m.key] ??= screen({});
+  state.auto_vcp = Object.fromEntries(Object.keys(state.screens).map((k) => [k, 0x10]));
   if (q.get("empty")) state.profiles = [];
   const delay = (ms) => new Promise((r) => setTimeout(r, ms));
   window.__emit = (name, payload) => window.__events?.[name]?.({ payload });
@@ -110,12 +113,14 @@
         if (cmd === "action_hotkey") state[{ "@off": "off_hotkey", "@up": "up_hotkey", "@down": "down_hotkey" }[args.action]] = args.hotkey;
         if (cmd === "ddc_values") return (state.screens[args.key]?.features ?? []).map((f) => ({ code: f.code, value: args.key === "c" ? null : ddc[f.code] ?? null }));
         if (cmd === "ddc_set") ddc[args.code] = args.value;
-        if (cmd === "ddc_power") return (ddc[0xd6] = ddc[0xd6] === 1 ? 5 : 1) === 1;
+        if (cmd === "ddc_power") return (ddc[0xd6] = args.on ? 1 : 5);
         if (cmd === "ddc_caps") {
           if (args.key === "d" || args.key === "b") throw L("Cet écran ne répond pas en DDC/CI", "This display doesn't respond over DDC/CI");
-          return structuredClone((state.screens[args.key] ??= screen({ caps: aorus })).caps);
+          const sc = (state.screens[args.key] ??= screen({}));
+          if (!Object.keys(sc.caps).length) sc.caps = aorus;
+          return structuredClone(sc.caps);
         }
-        if (cmd === "set_screen") state.screens[args.key] = { ...args.screen, caps: state.screens[args.key]?.caps ?? {} };
+        if (cmd === "set_screen") return structuredClone((state.screens[args.key] = { ...args.screen, caps: state.screens[args.key]?.caps ?? {} }));
         if (cmd === "set_panel") state.panel = args.panel;
         if (cmd === "flyout_fit") document.body.style.height = `${args.h}px`;
         return null;
