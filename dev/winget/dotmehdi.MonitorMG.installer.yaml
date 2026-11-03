@@ -1,0 +1,24 @@
+# Manifeste winget (installateur) pour MonitorMG 2.1.0 — voir docs/SIGNATURE.md.
+# L'empreinte SHA-256 vient du SHA256SUMS.txt publié avec la release v2.1.0.
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: dotmehdi.MonitorMG
+PackageVersion: 2.1.0
+Platform:
+  - Windows.Desktop
+MinimumOSVersion: 10.0.0.0
+InstallerType: nullsoft
+Scope: user
+InstallModes:
+  - interactive
+  - silent
+UpgradeBehavior: install
+AppsAndFeaturesEntries:
+  - DisplayName: MonitorMG
+    Publisher: MonitorMG
+    DisplayVersion: 2.1.0
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/dotmehdi/MonitorMG/releases/download/v2.1.0/MonitorMG-2.1.0-setup.exe
+    InstallerSha256: 97CF09506D245D1B17E5F189612EAF943F6F6D85ABA638423139D6AE4175D45B
+ManifestType: installer
+ManifestVersion: 1.6.0

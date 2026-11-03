@@ -67,19 +67,13 @@ node scripts/release.mjs       # installateur, édition portable et SHA256SUMS.t
 
 1. Mettre à jour `version` dans `Cargo.toml` et `tauri.conf.json`, et compléter `CHANGELOG.md`.
 2. `cargo test`, `cargo clippy --all-targets`, `cargo audit`, `npm run test:ui` (l'intégration continue les lance aussi à chaque envoi).
-3. `node scripts/release.mjs`.
-4. Tester l'installateur sur une session propre : installation, lancement avec Windows, mise à jour par-dessus la version précédente, désinstallation.
-5. Publier les trois fichiers de `dist/`.
+3. `node scripts/release.mjs`, puis tester l'installateur sur une session propre : installation, lancement avec Windows, mise à jour par-dessus la version précédente, désinstallation.
+4. Pousser le tag `vX.Y.Z` : le workflow `release` construit `dist/` sur un runner Windows, fait signer les exécutables si la signature est configurée ([SIGNATURE.md](SIGNATURE.md)), et crée la release en brouillon avec les trois fichiers.
+5. Coller les notes du `CHANGELOG.md` dans le brouillon et publier. (Sans CI : `node scripts/release.mjs` et publier les trois fichiers de `dist/` à la main.)
 
 ### Signature
 
-Sans signature, SmartScreen affiche « Éditeur inconnu ». Une fois un certificat obtenu (OV, ou Azure Artifact Signing), il suffit de renseigner `bundle.windows.signCommand` dans `tauri.conf.json`, par exemple avec `signtool` :
-
-```json
-"signCommand": "signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /sha1 <empreinte du certificat> %1"
-```
-
-Tauri signe alors l'exécutable et l'installateur pendant `node scripts/release.mjs`.
+Voir [SIGNATURE.md](SIGNATURE.md) : options de signature (SignPath Foundation, Certum), intégration dans le workflow de release, et winget en complément. Le workflow `.github/workflows/release.yml` fait signer les exécutables par SignPath dès que le dépôt est configuré (secret `SIGNPATH_API_TOKEN`, variables `SIGNPATH_*`) ; sans configuration, il produit une release non signée.
 
 ## Conventions
 
