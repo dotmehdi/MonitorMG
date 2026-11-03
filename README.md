@@ -1,6 +1,37 @@
 # MonitorMG
 
+**Français** · [English](README.en.md)
+
+> **Avant-propos.** MonitorMG est né d'un besoin personnel : piloter mes écrans sous Windows sans multiplier les allers-retours dans les Paramètres. Le projet est entièrement « vibe-codé » : son code a été écrit par une IA, sous ma direction. Je ne prétends donc pas être le développeur principal de cet outil ; je le partage tel quel, au cas où il rendrait service à d'autres.
+
 Gérez vos écrans sous Windows 10 et 11 sans passer par les Paramètres : activez ou désactivez un écran, placez-le, réglez luminosité, résolution, fréquence, orientation, mise à l'échelle et HDR. Pilotez aussi les commandes DDC/CI de vos écrans (contraste, volume, entrée, préréglage couleur, alimentation…) depuis un panneau ouvert d'un clic sur l'icône de notification. Enregistrez des profils d'affichage et rappelez-les en un clic, depuis la zone de notification, un raccourci clavier ou une icône sur le bureau.
+
+## Aperçu
+
+La fenêtre principale : disposition des écrans, et pour chacun luminosité, résolution, mise à l'échelle, fréquence, orientation et HDR. À gauche, les profils et leurs raccourcis.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/window-fr-dark.png">
+  <img src="docs/screenshots/window-fr-light.png" alt="Fenêtre principale de MonitorMG, vue Disposition : trois écrans actifs dont un en portrait, un écran désactivé, les profils à gauche et les réglages de l'écran sélectionné en dessous.">
+</picture>
+
+Le panneau de la zone de notification, ouvert d'un clic sur l'icône : luminosité de chaque écran, réglages DDC/CI choisis (ici contraste, volume, entrée et préréglage couleur), extinction des écrans et profils.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/flyout-fr-dark.png">
+    <img src="docs/screenshots/flyout-fr-light.png" width="360" alt="Panneau de la zone de notification : curseurs de luminosité, de contraste et de volume, choix de l'entrée et du préréglage couleur, et profils.">
+  </picture>
+</p>
+
+La vue DDC/CI : ce que chaque écran annonce savoir faire, et les réglages à afficher dans le panneau.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/ddc-fr-dark.png">
+  <img src="docs/screenshots/ddc-fr-light.png" alt="Vue DDC/CI : nom et plage de luminosité de l'écran, code VCP de la luminosité, blocage de DDC/CI, puis les réglages à afficher dans le panneau.">
+</picture>
+
+Les captures sont prises sur l'aperçu de développement (`dev/serve.js`), avec des écrans simulés ; l'interface est celle de l'application.
 
 ## Installation
 
