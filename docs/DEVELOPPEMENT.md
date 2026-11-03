@@ -59,6 +59,7 @@ cargo clippy --all-targets     # aucun avertissement attendu, lints de verrous c
 cargo audit                    # vulnérabilités connues des dépendances
 npm ci && npm run test:ui      # tests de l'interface (node --test)
 node dev/serve.js ui 4517      # aperçu de l'interface dans un navigateur, avec un faux backend (dev/mock.js) ; ?lang=en pour l'anglais
+node dev/captures.js           # captures d'écran du README (docs/screenshots/) depuis cet aperçu ; nécessite Playwright et les polices Segoe
 node scripts/release.mjs       # installateur, édition portable et SHA256SUMS.txt dans dist/, avec la version de Tauri CLI figée par package-lock.json
 ```
 
