@@ -7,7 +7,6 @@ name: release
 on:
   push:
     tags: ["v*"]
-    branches: ["claude/intelligent-davinci-exwzzf"] # TEMPORAIRE : validation du workflow, à retirer
   workflow_dispatch:
 
 permissions:
