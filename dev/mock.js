@@ -16,7 +16,7 @@
   ]);
   const laptop = modes([[2560, 1600, [165, 60]], [1920, 1200, [165, 60]], [1680, 1050, [60]]]);
   const builtin = L("Écran intégré", "Built-in display");
-  const mon = (o) => ({ mirror_of: null, rotation: 0, modes: [], scale: null, hdr: null, brightness: null, x: 0, y: 0, hz: 0, internal: false, primary: false, ...o });
+  const mon = (o) => ({ mirror_of: null, rotation: 0, modes: [], scale: null, hdr: null, brightness: null, soft: false, x: 0, y: 0, hz: 0, internal: false, primary: false, ...o });
   const scenarios = {
     desk: [
       mon({ key: "a", name: "AORUS FO32U2", connector: "DisplayPort", active: true, primary: true, w: 3840, h: 2160, hz: 200, native: [3840, 2160], modes: fourK, scale: { current: 200, recommended: 150, options: [100, 125, 150, 175, 200, 225, 250, 300] }, hdr: false, brightness: 60 }),
@@ -25,7 +25,7 @@
     dock: [
       mon({ key: "a", name: "DELL U2723QE", connector: "USB-C", active: true, primary: true, w: 3840, h: 2160, hz: 60, native: [3840, 2160], modes: fourK, scale: { current: 150, recommended: 150, options: [100, 125, 150, 175, 200, 225, 250, 300] }, hdr: false, brightness: 75 }),
       mon({ key: "b", name: builtin, connector: L("Intégré", "Built-in"), internal: true, active: true, x: -2560, y: 560, w: 2560, h: 1600, hz: 165, native: [2560, 1600], modes: laptop, scale: { current: 150, recommended: 150, options: [100, 125, 150, 175, 200] }, brightness: 40 }),
-      mon({ key: "c", name: "LG 27UL850", connector: "HDMI", active: true, x: 3840, y: -400, w: 2160, h: 3840, hz: 60, rotation: 90, native: [3840, 2160], modes: fourK.map((m) => ({ ...m, w: m.h, h: m.w })), scale: { current: 150, recommended: 150, options: [100, 125, 150, 175, 200] }, hdr: true }),
+      mon({ key: "c", name: "LG 27UL850", connector: "HDMI", active: true, x: 3840, y: -400, w: 2160, h: 3840, hz: 60, rotation: 90, native: [3840, 2160], modes: fourK.map((m) => ({ ...m, w: m.h, h: m.w })), scale: { current: 150, recommended: 150, options: [100, 125, 150, 175, 200] }, hdr: true, brightness: 80, soft: true }),
       mon({ key: "d", name: "Samsung Odyssey G5", connector: "DisplayPort", active: false, w: 2560, h: 1440, native: [2560, 1440] }),
     ],
   };
@@ -60,12 +60,15 @@
     { at: now - 27 * 3600e3, level: "info", source: sys, text: L("MonitorMG 1.0.0 démarré", "MonitorMG 1.0.0 started") },
   ];
   const pct = (v) => L(`${v} %`, `${v}%`);
-  const extras = (scale, hdr, brightness) => [
+  const extras = (scale, hdr, brightness, windows = 0) => [
     { id: "scale", on: true, stored: scale },
     { id: "hdr", on: true, stored: hdr },
     { id: "brightness", on: brightness !== "", stored: brightness },
+    { id: "windows", on: false, stored: windows ? L(`${windows} fenêtres`, `${windows} windows`) : "" },
   ];
-  state.profiles[0].extras = extras(`${pct(150)} / ${pct(150)} / ${pct(150)}`, L("désactivé / activé", "off / on"), `${pct(75)} / ${pct(40)}`);
+  state.profiles[0].extras = extras(`${pct(150)} / ${pct(150)} / ${pct(150)}`, L("désactivé / activé", "off / on"), `${pct(75)} / ${pct(40)}`, 9);
+  state.updates = false;
+  state.update = null;
   state.profiles[1].extras = extras(pct(150), "", pct(60));
   state.profiles[2].extras = extras(pct(100), "", "");
   state.profiles[3].extras = extras(pct(200), L("activé", "on"), pct(60));
@@ -116,6 +119,9 @@
           const steps = [...args.schedule.steps].sort((a, b) => a[0] - b[0]);
           return structuredClone((state.schedule = { ...args.schedule, steps }));
         }
+        if (cmd === "set_updates") state.updates = args.on;
+        if (cmd === "check_update") return (state.update = "2.3.0");
+        if (cmd === "open_releases") console.log("ouverture de la page des versions");
         if (cmd === "input_hotkey") state.screens[args.key].input_hotkey = args.hotkey;
         if (cmd === "profile_include") state.profiles.find((p) => p.id === args.id).extras.find((x) => x.id === args.setting).on = args.on;
         if (cmd === "set_tray_icon") state.tray_icon = args.name;
