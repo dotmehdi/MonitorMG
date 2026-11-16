@@ -23,6 +23,8 @@ pub(crate) fn watch_displays(app: AppHandle) {
             display::forget_modes();
             plugged(app);
             read_brightness(app, true);
+            // Un écran déplacé, débranché ou réactivé : son voile suit.
+            dim::refresh();
         }
         changed(app);
     }));
@@ -41,6 +43,10 @@ pub(crate) fn watch_displays(app: AppHandle) {
 }
 
 unsafe extern "system" fn watch_proc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+    if msg == dim::WM_VEILS {
+        dim::sync();
+        return LRESULT(0);
+    }
     let display = msg == WM_DISPLAYCHANGE || (msg == WM_DEVICECHANGE && wp.0 == DBT_DEVNODES_CHANGED as usize);
     // WM_SETTINGCHANGE est très fréquent : seul le thème (icône, accent) nous concerne.
     let theme = msg == WM_SETTINGCHANGE

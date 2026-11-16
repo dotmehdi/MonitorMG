@@ -359,7 +359,7 @@ function renderInspector() {
   );
 
   const rows = [
-    m.brightness != null && row(t("Luminosité"), null, brightnessSlider(m), true),
+    m.brightness != null && row(t("Luminosité"), m.soft ? t("Logicielle : cet écran ne répond pas en DDC/CI, un voile l'assombrit") : null, brightnessSlider(m), true),
     row(t("Résolution"), null, resSelect),
     m.scale && row(t("Mise à l'échelle"), t("Taille du texte et des fenêtres"), scaleSelect(m)),
     row(
@@ -890,7 +890,7 @@ async function saveProfile() {
 
 /** Réglages facultatifs d'un profil : désactivés, l'écran garde sa valeur actuelle. */
 async function extrasProfile(p) {
-  const names = { scale: t("Mise à l'échelle"), hdr: "HDR", brightness: t("Luminosité") };
+  const names = { scale: t("Mise à l'échelle"), hdr: "HDR", brightness: t("Luminosité"), windows: t("Place des fenêtres") };
   const rows = p.extras.map((x) =>
     el(
       "label",
@@ -920,6 +920,7 @@ async function extrasProfile(p) {
       el("p", { text: t("Désactivez un réglage pour garder sa valeur actuelle quand {0} est appliqué.", p.name) }),
       el("div", { class: "stack" }, ...rows),
       el("p", { class: "dialog-note", text: t("Disposition, activation, résolution, fréquence et orientation sont toujours appliquées.") }),
+      el("p", { class: "dialog-note", text: t("Les fenêtres sont celles ouvertes à l'enregistrement du profil ; « Remplacer par l'affichage actuel » les met à jour.") }),
     ],
     [{ label: t("Fermer"), value: "ok", primary: true }],
   );
@@ -1121,6 +1122,10 @@ function renderSettings() {
   $("#about-version").textContent = `Version ${S.version}${S.portable ? t(", édition portable") : ""}`;
   renderTrayIcons();
   renderSchedule();
+  $("#updates-on").checked = S.updates;
+  $("#update-status").textContent = S.update ? t("MonitorMG {0} est disponible", S.update) : t("Version {0}", S.version);
+  $("#update-hint").textContent = S.update ? t("Vous utilisez la version {0}", S.version) : upToDate ? t("MonitorMG est à jour") : "";
+  $("#update-open").hidden = !S.update;
   for (const [id, combo, what] of [
     ["#off-hotkey", S.off_hotkey, t("éteindre les écrans")],
     ["#up-hotkey", S.up_hotkey, t("monter la luminosité")],
@@ -1147,6 +1152,8 @@ function renderSettings() {
 }
 
 // ------------------------------------------------------------ luminosité selon l'heure
+
+let upToDate = false; // une vérification vient de ne rien trouver de plus récent
 
 const SCHEDULE_MAX = 12; // comme Schedule::MAX_STEPS côté backend
 
@@ -1454,6 +1461,14 @@ $("#ddc-reread").addEventListener("click", () => loadCaps(true));
 // Saisie terminée : la vue mise de côté pendant la frappe est reconstruite.
 $("#ddc-screens").addEventListener("focusout", () => ddcStale && setTimeout(renderDdc, 0));
 $("#sched").addEventListener("focusout", () => setTimeout(() => S && renderSchedule(), 0));
+$("#updates-on").addEventListener("change", (e) =>
+  run("set_updates", { on: e.target.checked }, e.target.checked ? t("Les mises à jour seront vérifiées une fois par jour") : t("Vérification des mises à jour désactivée")),
+);
+$("#update-check").addEventListener("click", async () => {
+  const found = await run("check_update", {}, (v) => (v ? t("MonitorMG {0} est disponible", v) : t("MonitorMG est à jour")));
+  if (found !== undefined) upToDate = !found;
+});
+$("#update-open").addEventListener("click", () => run("open_releases"));
 $("#autostart").addEventListener("change", (e) => run("set_autostart", { on: e.target.checked }, e.target.checked ? t("MonitorMG se lancera avec Windows") : t("Lancement avec Windows désactivé")));
 const saveConfirm = () => run("set_confirm", { on: $("#confirm-on").checked, secs: Number($("#confirm-secs").value) });
 $("#confirm-on").addEventListener("change", saveConfirm);

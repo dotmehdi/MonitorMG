@@ -143,7 +143,7 @@ function monitorBlock(m, withBrightness) {
 
   const rows = [];
   if (withBrightness && m.brightness != null) {
-    rows.push(sliderRow({ id: id(0x10), label: t("Luminosité de {0}", nameOf(m)), icon: "", value: m.brightness, onChange: (pct) => invoke("set_brightness", { key: m.key, pct }) }).node);
+    rows.push(sliderRow({ id: id(0x10), label: t(m.soft ? "Luminosité logicielle de {0}" : "Luminosité de {0}", nameOf(m)), icon: "", value: m.brightness, onChange: (pct) => invoke("set_brightness", { key: m.key, pct }) }).node);
   }
   for (const f of feats) {
     if (f.code === VCP_POWER) continue;

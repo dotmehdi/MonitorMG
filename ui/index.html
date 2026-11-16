@@ -186,6 +186,21 @@
           </div>
         </div>
 
+        <h2 class="group-title">Mises à jour</h2>
+        <div class="stack">
+          <label class="row">
+            <span class="row-label"><span>Vérifier les mises à jour</span><small>Une fois par jour, une seule requête à GitHub. Désactivé, MonitorMG ne se connecte jamais à Internet</small></span>
+            <input type="checkbox" role="switch" class="switch" id="updates-on">
+          </label>
+          <div class="row">
+            <span class="row-label"><span id="update-status"></span><small id="update-hint"></small></span>
+            <span class="range-inputs">
+              <button class="btn" id="update-check">Vérifier maintenant</button>
+              <button class="btn primary" id="update-open" hidden>Voir la version</button>
+            </span>
+          </div>
+        </div>
+
         <h2 class="group-title">À propos</h2>
         <div class="about">
           <img src="icon.svg" alt="">

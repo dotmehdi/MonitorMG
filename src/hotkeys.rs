@@ -65,7 +65,7 @@ pub(crate) fn on_hotkey(app: &AppHandle, sc: &Shortcut) {
         Some((o, _)) if o == UP || o == DOWN => nudge(app, o == UP),
         Some((o, _)) if o.starts_with(INPUT) => {
             let app = app.clone();
-            thread::spawn(move || toggle_input(&app, &o[INPUT.len()..]));
+            thread::spawn(move || toggle_input(&app, Src::Hotkey, &o[INPUT.len()..]));
         }
         Some((id, _)) => {
             let app = app.clone();
@@ -85,23 +85,26 @@ pub(crate) fn screens_off(app: &AppHandle, src: Src) {
         let s = store(app);
         (s.panel.off, s.panel.power, s.screens.clone())
     };
-    thread::spawn(move || {
-        if mode != store::OffMode::Soft {
-            display::power_off(&power_targets(signal, &screens));
-            if mode == store::OffMode::Hard {
-                return;
-            }
+    thread::spawn(move || power_down(mode, signal, &screens, HWND(WATCHER.load(Ordering::SeqCst) as *mut _)));
+}
+
+/// Le travail de `screens_off`, sans l'application : la ligne de commande s'en sert aussi.
+/// `target` reçoit l'ordre de veille de l'affichage (la fenêtre de surveillance, ou toutes).
+pub(crate) fn power_down(mode: store::OffMode, signal: store::PowerSignal, screens: &BTreeMap<String, store::Screen>, target: HWND) {
+    if mode != store::OffMode::Soft {
+        display::power_off(&power_targets(signal, screens));
+        if mode == store::OffMode::Hard {
+            return;
         }
-        let held = || (1..=0xFE).any(|vk| unsafe { GetAsyncKeyState(vk) } as u16 & 0x8000 != 0);
-        let start = Instant::now();
-        while held() && start.elapsed() < Duration::from_secs(5) {
-            thread::sleep(Duration::from_millis(50));
-        }
-        thread::sleep(Duration::from_millis(300));
-        let h = HWND(WATCHER.load(Ordering::SeqCst) as *mut _);
-        // 2 : écrans éteints (1 : économie d'énergie, -1 : allumés).
-        let _ = unsafe { PostMessageW(Some(h), WM_SYSCOMMAND, WPARAM(SC_MONITORPOWER as usize), LPARAM(2)) };
-    });
+    }
+    let held = || (1..=0xFE).any(|vk| unsafe { GetAsyncKeyState(vk) } as u16 & 0x8000 != 0);
+    let start = Instant::now();
+    while held() && start.elapsed() < Duration::from_secs(5) {
+        thread::sleep(Duration::from_millis(50));
+    }
+    thread::sleep(Duration::from_millis(300));
+    // 2 : écrans éteints (1 : économie d'énergie, -1 : allumés).
+    let _ = unsafe { PostMessageW(Some(target), WM_SYSCOMMAND, WPARAM(SC_MONITORPOWER as usize), LPARAM(2)) };
 }
 
 
@@ -141,7 +144,7 @@ pub(crate) fn nudge(app: &AppHandle, up: bool) {
 }
 
 /// Nom MCCS d'une entrée (code 0x60), pour le journal ; les mêmes que dans `ui/vcp.js`.
-fn input_name(v: u8) -> String {
+pub(crate) fn input_name(v: u8) -> String {
     match v {
         0x01 => "VGA 1",
         0x02 => "VGA 2",
@@ -169,19 +172,24 @@ fn next_input((a, b): (u8, u8), current: Option<u32>) -> u8 {
 
 /// Raccourci de bascule d'entrée : un KVM logiciel pour un écran branché à deux machines.
 /// Pas de confirmation, c'est le but ; le journal garde la trace.
-pub(crate) fn toggle_input(app: &AppHandle, key: &str) {
+pub(crate) fn toggle_input(app: &AppHandle, src: Src, key: &str) {
     let Some(pair) = store(app).screens.get(key).and_then(|sc| sc.inputs) else { return };
+    let (level, text) = switch_input(key, pair);
+    note(app, level, src, &text);
+    if level == Level::Error {
+        report(app, &text);
+    }
+}
+
+/// Lit l'entrée affichée et envoie l'autre de la paire. Renvoie de quoi le consigner.
+pub(crate) fn switch_input(key: &str, pair: (u8, u8)) -> (Level, String) {
     let name = display::name(key);
     // Certains écrans renvoient l'entrée avec un octet de poids fort.
     let current = display::vcp_get(key, &[display::VCP_INPUT]).ok().and_then(|v| v.first().and_then(|x| x.1)).map(|(cur, _)| cur & 0xFF);
     let to = next_input(pair, current);
     match display::vcp_set(key, display::VCP_INPUT, to.into()) {
-        Ok(()) => note(app, Level::Ok, Src::Hotkey, &tr!("{name} : entrée {}", "{name}: input {}", input_name(to))),
-        Err(e) => {
-            let m = tr!("{name} : changement d'entrée impossible. {e}", "{name}: can't switch input. {e}");
-            note(app, Level::Error, Src::Hotkey, &m);
-            report(app, &m);
-        }
+        Ok(()) => (Level::Ok, tr!("{name} : entrée {}", "{name}: input {}", input_name(to))),
+        Err(e) => (Level::Error, tr!("{name} : changement d'entrée impossible. {e}", "{name}: can't switch input. {e}")),
     }
 }
 

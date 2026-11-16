@@ -9,11 +9,15 @@ macro_rules! tr {
 }
 
 mod auto;
+mod cli;
+mod dim;
 mod display;
 mod journal;
 mod hotkeys;
+mod placement;
 mod store;
 mod tray;
+mod update;
 mod views;
 mod watch;
 
@@ -47,6 +51,9 @@ use windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Après un changement de disposition, Windows déplace lui-même les fenêtres : on attend
+/// qu'il ait fini avant de les remettre à leur place.
+const WINDOWS_SETTLE: Duration = Duration::from_millis(1500);
 const NNBSP: char = '\u{202F}';
 
 /// Origine d'une action, affichée dans la vue Activité.
@@ -62,6 +69,7 @@ enum Src {
     Schedule,
     Power,
     Program,
+    Command,
 }
 
 impl Src {
@@ -77,6 +85,7 @@ impl Src {
             Src::Schedule => t("Planification", "Schedule"),
             Src::Power => t("Alimentation", "Power"),
             Src::Program => t("Programme", "Program"),
+            Src::Command => t("Commande", "Command"),
         }
     }
 }
@@ -145,6 +154,9 @@ struct View {
     /// Code de luminosité retenu automatiquement pour chaque écran, comme le moteur.
     auto_vcp: BTreeMap<String, u8>,
     schedule: store::Schedule,
+    /// Vérification quotidienne des mises à jour, et version plus récente déjà trouvée.
+    updates: bool,
+    update: Option<String>,
 }
 
 /// Valeur d'un réglage DDC/CI : en % pour un réglage continu, brute pour un réglage à
@@ -166,7 +178,7 @@ async fn state(app: AppHandle) -> Res<View> {
     let monitors = display::monitors()?;
     read_brightness(&app, false);
     let sig = display::signature().unwrap_or_default();
-    let (profiles, confirm, hotkeys, panel, mut screens, schedule) = {
+    let (profiles, confirm, hotkeys, panel, mut screens, schedule, updates) = {
         let s = store(&app);
         let views = s
             .profiles
@@ -181,11 +193,11 @@ async fn state(app: AppHandle) -> Res<View> {
                 triggers: p.triggers.clone(),
                 extras: store::EXTRAS
                     .iter()
-                    .map(|&id| ExtraView { id, on: !p.exclude.contains(id), stored: stored(&p.snap, id) })
+                    .map(|&id| ExtraView { id, on: !p.exclude.contains(id), stored: stored(p, id) })
                     .collect(),
             })
             .collect();
-        (views, s.confirm, [s.off_hotkey.clone(), s.up_hotkey.clone(), s.down_hotkey.clone()], s.panel.clone(), s.screens.clone(), s.schedule.clone())
+        (views, s.confirm, [s.off_hotkey.clone(), s.up_hotkey.clone(), s.down_hotkey.clone()], s.panel.clone(), s.screens.clone(), s.schedule.clone(), s.updates)
     };
     let [off_hotkey, up_hotkey, down_hotkey] = hotkeys;
     for m in &monitors {
@@ -213,6 +225,8 @@ async fn state(app: AppHandle) -> Res<View> {
         screens,
         auto_vcp,
         schedule,
+        updates,
+        update: update::newer(),
     })
 }
 
@@ -467,7 +481,11 @@ async fn profile_update(app: AppHandle, id: String) -> Res<()> {
     let fresh = store::capture(name.clone())?;
     save_with(&app, |s| {
         let p = s.get_mut(&id)?;
-        (p.sig, p.tiles, p.snap, p.screens) = (fresh.sig, fresh.tiles, fresh.snap, fresh.screens);
+        if p.windows.is_empty() {
+            // Profil d'avant la place des fenêtres : elles restent à demander.
+            p.exclude.insert(store::WINDOWS.into());
+        }
+        (p.sig, p.tiles, p.snap, p.screens, p.windows) = (fresh.sig, fresh.tiles, fresh.snap, fresh.screens, fresh.windows);
         Ok(())
     })?;
     note(&app, Level::Ok, Src::Window, &tr!("Profil « {name} » remplacé par l'affichage actuel", "Profile “{name}” replaced with the current setup"));
@@ -587,6 +605,32 @@ async fn set_schedule(app: AppHandle, schedule: store::Schedule) -> Res<store::S
     Ok(kept)
 }
 
+/// Vérification quotidienne des mises à jour. Activée, une première a lieu tout de suite.
+#[tauri::command]
+async fn set_updates(app: AppHandle, on: bool) -> Res<()> {
+    save_with(&app, |s| {
+        s.updates = on;
+        Ok(())
+    })?;
+    if on {
+        thread::spawn(move || update::check_quietly(&app));
+    }
+    Ok(())
+}
+
+/// « Vérifier maintenant » : renvoie la version disponible, s'il y en a une plus récente.
+#[tauri::command]
+async fn check_update(app: AppHandle) -> Res<Option<String>> {
+    let found = update::check()?;
+    changed(&app);
+    Ok(found)
+}
+
+#[tauri::command]
+async fn open_releases() -> Res<()> {
+    update::open_releases()
+}
+
 /// Raccourci qui bascule l'entrée d'un écran entre ses deux entrées choisies.
 #[tauri::command]
 async fn input_hotkey(app: AppHandle, key: String, hotkey: Option<String>) -> Res<()> {
@@ -693,6 +737,10 @@ fn feature_range(sc: &store::Screen, code: u8) -> display::Range {
 /// Réglages liés à la luminosité : ils la suivent jusqu'à leur seuil, puis restent au maximum.
 fn follow(app: &AppHandle, key: &str, pct: u32) {
     let Some(sc) = store(app).screens.get(key).cloned() else { return };
+    follow_with(&sc, key, pct);
+}
+
+fn follow_with(sc: &store::Screen, key: &str, pct: u32) {
     for f in sc.features.iter().filter(|f| f.linked && !sc.discrete(f.code) && f.code != display::VCP_POWER) {
         let _ = display::vcp_level(key, f.code, pct.min(f.stop) * 100 / f.stop.max(1), f.range);
     }
@@ -717,8 +765,17 @@ fn topology_label(kind: &str) -> &'static str {
     }
 }
 
-/// Valeurs d'un réglage facultatif enregistrées dans un profil, écran par écran.
-fn stored(s: &display::Snapshot, id: &str) -> String {
+/// Valeurs d'un réglage facultatif enregistrées dans un profil, écran par écran ; pour
+/// les fenêtres, leur nombre.
+fn stored(p: &store::Profile, id: &str) -> String {
+    if id == store::WINDOWS {
+        return match p.windows.len() {
+            0 => String::new(),
+            1 => t("1 fenêtre", "1 window").into(),
+            n => tr!("{n} fenêtres", "{n} windows"),
+        };
+    }
+    let s = &p.snap;
     let pct = |v: &u32| tr!("{v}{NNBSP}%", "{v}%");
     let list: Vec<(&String, String)> = match id {
         "scale" => s.scales.iter().map(|(k, v)| (k, pct(v))).collect(),
@@ -793,6 +850,7 @@ fn from_menu(app: &AppHandle, what: &str, risky: bool, f: impl FnOnce() -> Res<(
 fn apply_profile(app: &AppHandle, src: Src, id: &str) -> Res<String> {
     let p = store(app).get_mut(id)?.clone();
     let extras = p.extras();
+    let windows = p.placed_windows().to_vec();
     let (name, snap) = (p.name, p.snap);
     let what = match src {
         Src::Plug => tr!("Profil « {name} » appliqué au branchement", "Profile “{name}” applied on connect"),
@@ -801,7 +859,16 @@ fn apply_profile(app: &AppHandle, src: Src, id: &str) -> Res<String> {
         Src::Program => tr!("Profil « {name} » appliqué au lancement de son programme", "Profile “{name}” applied when its program started"),
         _ => tr!("Profil « {name} » appliqué", "Profile “{name}” applied"),
     };
-    act(app, src, &what, false, || display::restore(&snap, extras).map(missing_text))
+    let r = act(app, src, &what, false, || display::restore(&snap, extras).map(missing_text));
+    if r.is_ok() && !windows.is_empty() {
+        let app = app.clone();
+        thread::spawn(move || {
+            thread::sleep(WINDOWS_SETTLE);
+            let n = placement::restore(&windows);
+            note(&app, Level::Info, Src::System, &tr!("{n} fenêtre(s) remise(s) en place", "{n} window(s) put back in place"));
+        });
+    }
+    r
 }
 
 fn undo_last(app: &AppHandle, src: Src) -> Res<()> {
@@ -930,11 +997,6 @@ fn guarded<T>(app: &AppHandle, snap: display::Snapshot, f: impl FnOnce() -> Res<
 
 // ---------------------------------------------------------------- démarrage
 
-/// Valeur de `--profile <id ou nom>` dans les arguments.
-fn profile_arg(args: &[String]) -> Option<String> {
-    args.iter().position(|a| a == "--profile").and_then(|i| args.get(i + 1)).cloned()
-}
-
 /// MonitorMG tourne-t-il déjà ? Même repère que le greffon d'instance unique.
 fn running(identifier: &str) -> bool {
     let wide = |s: String| s.encode_utf16().chain([0]).collect::<Vec<u16>>();
@@ -945,21 +1007,10 @@ fn running(identifier: &str) -> bool {
 /// Second lancement. Un raccourci bureau (`--profile`) applique son profil ici, avec les
 /// réglages DDC/CI, le journal, l'annulation et le verrou du bus ; sinon on montre la fenêtre.
 fn second_instance(app: &AppHandle, args: Vec<String>) {
-    let Some(id) = profile_arg(&args) else { return show_main(app) };
+    let Some(Ok(cmd)) = cli::parse(&args) else { return show_main(app) };
     let app = app.clone();
     // Le message arrive sur le thread principal : le travail se fait ailleurs.
-    thread::spawn(move || {
-        let found = store(&app).profiles.iter().find(|p| p.id == id || p.name == id).map(|p| p.id.clone());
-        let r = match found {
-            Some(pid) => apply_profile(&app, Src::Desktop, &pid),
-            None => {
-                let e = tr!("Profil « {id} » introuvable", "Profile “{id}” not found");
-                note(&app, Level::Error, Src::Desktop, &e);
-                Err(e)
-            }
-        };
-        outcome(&app, r);
-    });
+    thread::spawn(move || cli::run(&app, cmd));
 }
 
 /// Raccourci bureau quand MonitorMG ne tourne pas : applique le profil puis quitte.
@@ -975,7 +1026,12 @@ fn apply_from_desktop(id: &str) {
         return;
     };
     let what = tr!("Profil « {} » appliqué", "Profile “{}” applied", p.name);
-    match display::restore(&p.snap, p.extras()) {
+    let r = display::restore(&p.snap, p.extras());
+    if r.is_ok() && !p.placed_windows().is_empty() {
+        thread::sleep(WINDOWS_SETTLE);
+        placement::restore(p.placed_windows());
+    }
+    match r {
         Ok(0) => {
             journal::write(Level::Ok, desk, &what);
         }
@@ -1016,10 +1072,13 @@ fn main() {
 
     let args: Vec<String> = std::env::args().collect();
     let context = tauri::generate_context!();
-    // MonitorMG déjà lancé : le greffon d'instance unique lui transmet `--profile`.
-    if let Some(id) = profile_arg(&args).filter(|_| !running(&context.config().identifier)) {
-        apply_from_desktop(&id);
-        return;
+    match cli::parse(&args) {
+        Some(Err(e)) => return cli::refuse(&e),
+        // L'état se lit ici même : la sortie standard est celle de ce processus.
+        Some(Ok(cli::Cmd::Json)) => return cli::print_state(),
+        // MonitorMG déjà lancé : le greffon d'instance unique lui transmet la commande.
+        Some(Ok(cmd)) if !running(&context.config().identifier) => return cli::alone(cmd),
+        _ => {}
     }
     let hidden = args.iter().any(|a| a == "--minimized");
 
@@ -1073,6 +1132,9 @@ fn main() {
             profile_triggers,
             set_schedule,
             input_hotkey,
+            set_updates,
+            check_update,
+            open_releases,
             profile_include,
             profile_shortcut,
             set_autostart,
@@ -1102,10 +1164,12 @@ fn main() {
                 journal::write(Level::Warn, Src::System.label(), &tr!("{} raccourci(s) clavier refusé(s) par Windows", "{} keyboard shortcut(s) refused by Windows", refused.len()));
             }
             retune(&h);
+            display::enable_soft();
             read_brightness(&h, true);
             watch_displays(h.clone());
             auto::start(h.clone());
             auto::watch_programs(h.clone());
+            update::watch(h.clone());
             if !hidden {
                 show_main(&h);
             }

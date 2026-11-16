@@ -1,5 +1,33 @@
 # Journal des modifications
 
+## 2.2.1
+
+Quatre compléments à la 2.2.0, jamais publiée seule : cette version la contient.
+
+### Luminosité logicielle
+
+- Un écran qui ne répond ni en DDC/CI ni en WMI (adaptateur, dock, téléviseur) a désormais son curseur : un voile sombre, traversé par les clics, l'assombrit. Fenêtre, panneau, menu, raccourcis et luminosité selon l'heure le règlent comme les autres.
+- Le voile ne rend jamais l'écran noir, disparaît avec MonitorMG et laisse la place à la luminosité matérielle dès que l'écran répond. Il apparaît sur les captures d'écran et ne s'enregistre pas dans les profils.
+
+### Place des fenêtres
+
+- Un profil mémorise les fenêtres ouvertes à son enregistrement et peut les remettre en place après son application : « Réglages appliqués… », « Place des fenêtres ». Désactivé par défaut.
+- Une fenêtre est reconnue par son programme, sa classe et l'empreinte de son titre ; le titre lui-même n'est jamais enregistré. Les fenêtres d'un programme lancé en administrateur restent où elles sont.
+
+### Ligne de commande
+
+- `--brightness <0 à 100> [--screen <numéro ou nom>]`, `--input <numéro ou nom>`, `--off`, et `--json` pour lire l'état des écrans et des profils.
+- Transmises à MonitorMG s'il tourne, sinon exécutées seules : de quoi piloter les écrans depuis un script, le Planificateur de tâches ou une touche de Stream Deck (action « Ouvrir » sur un raccourci Windows).
+
+### Mises à jour
+
+- Paramètres, « Mises à jour » : vérification quotidienne sur option, désactivée par défaut, et bouton « Vérifier maintenant ». Une seule requête à GitHub ; rien n'est téléchargé ni installé.
+
+### Technique
+
+- Nouveaux modules `dim.rs`, `placement.rs`, `cli.rs`, `update.rs` ; `screens_off`, la bascule d'entrée et les réglages liés ont un cœur utilisable sans l'application.
+- 35 tests Rust, 5 tests de l'interface.
+
 ## 2.2.0
 
 Trois automatismes : la luminosité suit l'heure, les profils se déclenchent seuls, et un raccourci bascule l'entrée d'un écran.
