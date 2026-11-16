@@ -13,6 +13,10 @@ Rust + [Tauri 2](https://tauri.app). L'interface est en HTML, CSS et JavaScript,
 | `src/hotkeys.rs` | Raccourcis clavier globaux, extinction des écrans, raccourcis de luminosité, bascule d'entrée (`toggle_input`). |
 | `src/watch.rs` | Branchements, changements d'affichage et de thème ; profils automatiques ; alimentation et sortie de veille, transmises à `auto`. |
 | `src/auto.rs` | Automatismes : luminosité selon l'heure (`Schedule`), profils à heure fixe, au changement d'alimentation et au lancement d'un programme (`Triggers`). |
+| `src/dim.rs` | Luminosité logicielle : voiles sombres (fenêtres en couches, traversées par les clics) posés par le thread de surveillance sur les écrans sans luminosité matérielle. |
+| `src/placement.rs` | Place des fenêtres d'un profil : relevé (`EnumWindows`, `GetWindowPlacement`), association aux fenêtres ouvertes (`pair`), remise en place. |
+| `src/cli.rs` | Ligne de commande : `--profile`, `--brightness`, `--input`, `--off`, `--json`, dans l'application en marche ou seule. |
+| `src/update.rs` | Vérification des mises à jour sur option : une requête WinHTTP à l'API des releases de GitHub. |
 | `src/store.rs` | Profils et réglages (`config.json`, réparés à la lecture), préférences DDC/CI par écran (`Screen`, `Feature`) et du panneau (`Panel`, `OffMode`, `PowerSignal`), mode portable, raccourcis bureau, couleur d'accent. |
 | `src/journal.rs` | Journal d'activité : une ligne JSON par événement (`Level`), écrite en un seul appel, fichier tournant à 512 Ko. Il nourrit la vue Activité et sert au diagnostic. |
 | `ui/` | Interface : `index.html`, `app.js`, `style.css`, `i18n.js` (traduction anglaise), `common.js` (outils partagés : `el`, envoi `latest`, aimantation `snap`), `vcp.js` (noms MCCS des codes et valeurs), le panneau de la zone de notification (`flyout.html`, `flyout.js`), plus les fenêtres de confirmation et d'identification. |
@@ -51,6 +55,18 @@ Les déclencheurs d'un profil passent par `apply_profile`, donc par `act()` : jo
 
 La bascule d'entrée (`@input|<clé d'écran>` parmi les propriétaires de raccourcis) lit le code 0x60, puis écrit l'autre entrée de la paire. Son raccourci ne s'enregistre que par `assign_hotkey` : `set_screen` garde celui du fichier, quoi qu'envoie l'interface.
 
+### Luminosité logicielle
+
+`display::monitors()` donne à chaque écran actif sa luminosité matérielle (`LEVELS`) ou, à défaut, logicielle (`SOFT`, 100 % par défaut) avec `soft: true`. Le repli n'existe que dans l'application en marche (`enable_soft`) et après une première lecture matérielle : avant, tout écran paraîtrait muet. `set_brightness` note alors le niveau et demande au thread de surveillance (`WM_VEILS`) de mettre les voiles à jour ; `dim::sync` crée, déplace ou retire une fenêtre par écran d'après `display::veils()`. Un écran qui répond enfin en DDC/CI quitte `SOFT` à la relecture. Les profils n'enregistrent que la luminosité matérielle.
+
+### Place des fenêtres
+
+`store::capture` relève toujours les fenêtres d'application (visibles, titrées, sans propriétaire, ni outil ni masquées) ; elles ne sont remises en place que si « windows » n'est pas dans `exclude`, ce qui est le cas par défaut. Après `display::restore`, on attend `WINDOWS_SETTLE` que Windows ait fini de déplacer les fenêtres, puis `placement::restore` applique `SetWindowPlacement` ; une fenêtre agrandie est d'abord remise à sa place normale, pour s'agrandir sur le bon écran.
+
+### Ligne de commande
+
+`cli::parse` lit les arguments ; `main` traite `--json` et les erreurs dans le processus lancé, exécute la commande seule (`cli::alone`) si MonitorMG ne tourne pas, et laisse sinon le greffon d'instance unique la transmettre (`cli::run`). Les deux chemins partagent `brightness`, `input`, `power_down` et `switch_input`.
+
 ### Actions et annulation
 
 Chaque modification d'affichage passe par `act()` : capture de l'état d'avant, application (sous confirmation si elle est risquée), entrée dans le journal avec sa source, mémorisation de l'état d'avant pour « Annuler ». La fenêtre de confirmation rétablit l'état d'origine si personne ne répond.
@@ -62,7 +78,7 @@ Chaque modification d'affichage passe par `act()` : capture de l'état d'avant, 
 ## Commandes
 
 ```
-cargo test                     # 27 tests ; le test réel lit la config et les écrans et fait valider chaque opération par Windows, sans rien appliquer
+cargo test                     # 35 tests ; le test réel lit la config et les écrans et fait valider chaque opération par Windows, sans rien appliquer
 cargo test -- --ignored        # test réel de la luminosité, écran par écran (modifie puis rétablit)
 cargo clippy --all-targets     # aucun avertissement attendu, lints de verrous compris
 cargo audit                    # vulnérabilités connues des dépendances

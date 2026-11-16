@@ -27,7 +27,7 @@ pub struct Entry {
     pub at: u64,
     pub level: Level,
     /// Fenêtre, Panneau, Menu, Raccourci, Branchement, Bureau, Système, Planification,
-    /// Alimentation ou Programme.
+    /// Alimentation, Programme ou Commande.
     pub source: String,
     pub text: String,
     /// Modification annulable au moment où elle a été faite.

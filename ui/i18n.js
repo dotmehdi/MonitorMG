@@ -172,6 +172,24 @@ const EN = {
   "Disposition, activation, résolution, fréquence et orientation sont toujours appliquées.":
     "Layout, enabled displays, resolution, refresh rate and orientation are always applied.",
   "Aucun écran ne permet de régler la luminosité.": "None of your displays supports brightness control.",
+  // Luminosité logicielle, place des fenêtres, mises à jour
+  "Logicielle : cet écran ne répond pas en DDC/CI, un voile l'assombrit": "Software: this display doesn't respond over DDC/CI, a veil dims it",
+  "Luminosité logicielle de {0}": "{0} software brightness",
+  "Place des fenêtres": "Window positions",
+  "Les fenêtres sont celles ouvertes à l'enregistrement du profil ; « Remplacer par l'affichage actuel » les met à jour.":
+    "The windows are those open when the profile was saved; “Replace with current setup” updates them.",
+  "Mises à jour": "Updates",
+  "Vérifier les mises à jour": "Check for updates",
+  "Une fois par jour, une seule requête à GitHub. Désactivé, MonitorMG ne se connecte jamais à Internet":
+    "Once a day, a single request to GitHub. When off, MonitorMG never connects to the Internet",
+  "Vérifier maintenant": "Check now",
+  "Voir la version": "View release",
+  "MonitorMG {0} est disponible": "MonitorMG {0} is available",
+  "MonitorMG est à jour": "MonitorMG is up to date",
+  "Version {0}": "Version {0}",
+  "Vous utilisez la version {0}": "You are using version {0}",
+  "Les mises à jour seront vérifiées une fois par jour": "Updates will be checked once a day",
+  "Vérification des mises à jour désactivée": "Update check turned off",
   // Luminosité selon l'heure
   "Luminosité selon l'heure": "Brightness by time of day",
   "Régler la luminosité selon l'heure": "Adjust brightness by time of day",

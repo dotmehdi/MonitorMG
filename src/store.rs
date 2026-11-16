@@ -27,12 +27,15 @@ pub struct Profile {
     pub auto: bool,
     #[serde(default)]
     pub screens: BTreeSet<String>,
-    /// Réglages à ne pas appliquer : "scale", "hdr" ou "brightness".
+    /// Réglages à ne pas appliquer : "scale", "hdr", "brightness" ou "windows".
     #[serde(default)]
     pub exclude: BTreeSet<String>,
     /// Déclencheurs automatiques, en plus du branchement (`auto`).
     #[serde(default)]
     pub triggers: Triggers,
+    /// Fenêtres ouvertes à l'enregistrement, remises en place si « windows » n'est pas exclu.
+    #[serde(default)]
+    pub windows: Vec<crate::placement::Saved>,
 }
 
 /// Source d'alimentation d'un portable.
@@ -74,12 +77,23 @@ impl Triggers {
 }
 
 /// Réglages qu'un profil peut exclure.
-pub const EXTRAS: [&str; 3] = ["scale", "hdr", "brightness"];
+pub const EXTRAS: [&str; 4] = ["scale", "hdr", "brightness", WINDOWS];
+/// La place des fenêtres : exclue tant que l'utilisateur ne l'a pas demandée.
+pub const WINDOWS: &str = "windows";
 
 impl Profile {
     pub fn extras(&self) -> display::Extras {
         let on = |k: &str| !self.exclude.contains(k);
         display::Extras { scale: on("scale"), hdr: on("hdr"), brightness: on("brightness") }
+    }
+
+    /// Fenêtres à remettre en place après l'application du profil ; vide si ce n'est pas demandé.
+    pub fn placed_windows(&self) -> &[crate::placement::Saved] {
+        if self.exclude.contains(WINDOWS) {
+            &[]
+        } else {
+            &self.windows
+        }
     }
 }
 
@@ -397,6 +411,10 @@ pub struct Store {
     pub screens: BTreeMap<String, Screen>,
     #[serde(default)]
     pub schedule: Schedule,
+    /// Vérifier les mises à jour une fois par jour. Désactivé par défaut : sans cette
+    /// option, MonitorMG ne se connecte jamais à Internet.
+    #[serde(default)]
+    pub updates: bool,
 }
 
 /// Dossier de l'exécutable s'il contient un fichier `portable`.
@@ -482,8 +500,10 @@ pub fn capture(name: String) -> Res<Profile> {
         snap: display::capture()?,
         auto: false,
         screens: display::connected()?,
-        exclude: BTreeSet::new(),
+        // Déplacer les fenêtres surprendrait : mémorisées, mais appliquées sur demande.
+        exclude: BTreeSet::from([WINDOWS.to_string()]),
         triggers: Triggers::default(),
+        windows: crate::placement::capture(),
     })
 }
 
@@ -604,6 +624,12 @@ mod tests {
         p.exclude.insert("brightness".into());
         let x = p.extras();
         assert!(!x.brightness && x.scale && x.hdr);
+        // Fenêtres : jamais mémorisées par un ancien profil, et exclues à la demande.
+        assert!(p.placed_windows().is_empty());
+        p.windows = vec![crate::placement::Saved { exe: "a.exe".into(), class: "c".into(), title: 1, rect: (0, 0, 10, 10), show: 1, max: false }];
+        assert_eq!(p.placed_windows().len(), 1);
+        p.exclude.insert(WINDOWS.into());
+        assert!(p.placed_windows().is_empty());
     }
 
     #[test]
@@ -721,5 +747,6 @@ mod tests {
         let a = &s.screens["a"];
         assert!(a.hidden && a.range == Range::FULL && a.features[0].stop == 100);
         assert_eq!((a.inputs, &a.input_hotkey, &s.schedule), (None, &None, &Schedule::default()));
+        assert!(!s.updates);
     }
 }

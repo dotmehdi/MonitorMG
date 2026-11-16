@@ -6,6 +6,7 @@ use crate::store;
 use serde::{Deserialize, Serialize};
 use std::collections::{hash_map::Entry, BTreeMap, BTreeSet, HashMap, HashSet};
 use std::mem::size_of;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Mutex, MutexGuard, OnceLock, PoisonError};
 use windows::core::{w, BOOL, BSTR, HRESULT, PCWSTR};
 use windows::Win32::Devices::Display::*;
@@ -117,6 +118,8 @@ pub struct Monitor {
     pub scale: Option<Scale>,
     pub hdr: Option<bool>,
     pub brightness: Option<u32>,
+    /// Luminosité logicielle : l'écran ne répond ni en DDC/CI ni en WMI, un voile l'assombrit.
+    pub soft: bool,
 }
 
 /// Vignette d'un écran dans un profil, pour l'aperçu.
@@ -530,6 +533,7 @@ pub fn monitors() -> Res<Vec<Monitor>> {
             scale: None,
             hdr: None,
             brightness: None,
+            soft: false,
         };
         if m.active {
             if let Some(sm) = source_mode(&cfg, p) {
@@ -554,7 +558,10 @@ pub fn monitors() -> Res<Vec<Monitor>> {
             }
             m.scale = scale_info(s.adapterId, s.id);
             m.hdr = hdr_info(t.adapterId, t.id);
-            m.brightness = lock(&LEVELS).get(&m.key).copied();
+            // Un écran dupliqué partage l'image de sa source : un seul voile, celui de la source.
+            if let Some((pct, soft)) = level(&m.key).filter(|l| !l.1 || m.mirror_of.is_none()) {
+                (m.brightness, m.soft) = (Some(pct), soft);
+            }
         }
         out.push(m);
     }
@@ -924,6 +931,50 @@ fn tuning(key: &str) -> Tune {
 /// Dernière luminosité connue (%) de chaque écran. DDC/CI est lent (jusqu'à ~50 ms
 /// par écran) : `monitors()` lit ce cache, `read_brightness()` le met à jour à part.
 static LEVELS: Mutex<BTreeMap<String, u32>> = Mutex::new(BTreeMap::new());
+/// Luminosité logicielle (%) des écrans que ni DDC/CI ni WMI ne règlent : `dim.rs` pose
+/// sur eux un voile sombre. Absent : 100 %.
+static SOFT: Mutex<BTreeMap<String, u32>> = Mutex::new(BTreeMap::new());
+/// La luminosité logicielle n'existe que dans l'application en marche (le voile est une
+/// fenêtre), et une fois la luminosité matérielle lue : avant, tout écran paraîtrait muet.
+static SOFT_ON: AtomicBool = AtomicBool::new(false);
+static READ_ONCE: AtomicBool = AtomicBool::new(false);
+
+/// Active le repli logiciel pour les écrans sans luminosité matérielle.
+pub fn enable_soft() {
+    SOFT_ON.store(true, Ordering::SeqCst);
+}
+
+fn soft_ready() -> bool {
+    SOFT_ON.load(Ordering::SeqCst) && READ_ONCE.load(Ordering::SeqCst)
+}
+
+/// Luminosité (%) d'un écran actif, et si elle est logicielle. `None` : inconnue.
+fn level(key: &str) -> Option<(u32, bool)> {
+    let hw = lock(&LEVELS).get(key).copied();
+    match hw {
+        Some(v) => Some((v, false)),
+        None => soft_ready().then(|| (lock(&SOFT).get(key).copied().unwrap_or(100), true)),
+    }
+}
+
+/// Opacité (0 à 255) du voile pour une luminosité logicielle : jamais opaque, l'écran
+/// reste lisible à 0 %.
+pub fn veil_alpha(pct: u32) -> u8 {
+    ((100 - pct.min(100)) * 217 / 100) as u8
+}
+
+/// Écrans à voiler : clé -> (x, y, largeur, hauteur, opacité).
+pub fn veils() -> BTreeMap<String, (i32, i32, i32, i32, u8)> {
+    monitors()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|m| m.active && m.soft)
+        .filter_map(|m| {
+            let alpha = veil_alpha(m.brightness?);
+            (alpha > 0).then_some((m.key, (m.x, m.y, m.w as i32, m.h as i32, alpha)))
+        })
+        .collect()
+}
 /// Un seul échange à la fois avec les écrans ; garde aussi la valeur maximale de chaque
 /// code VCP, écran par écran (voir `slot`).
 static BUS: Mutex<BTreeMap<String, u32>> = Mutex::new(BTreeMap::new());
@@ -1198,9 +1249,19 @@ pub fn read_brightness() -> bool {
         }
         note(k, r.and_then(percent).map(|p| tu.range.to_slider(p)));
     });
-    let mut l = lock(&LEVELS);
-    l.retain(|k, _| ts.iter().any(|t| t.0 == *k));
-    *l != before
+    let levels = {
+        let mut l = lock(&LEVELS);
+        l.retain(|k, _| ts.iter().any(|t| t.0 == *k));
+        l.clone()
+    };
+    // Un écran qui répond enfin (DDC/CI activé dans son menu) quitte la luminosité logicielle.
+    let soft_before = lock(&SOFT).clone();
+    lock(&SOFT).retain(|k, _| !levels.contains_key(k) && ts.iter().any(|t| t.0 == *k));
+    let first = !READ_ONCE.swap(true, Ordering::SeqCst);
+    if *lock(&SOFT) != soft_before {
+        crate::dim::refresh();
+    }
+    levels != before || first
 }
 
 /// Règle un code VCP continu à `pct` % de son maximum.
@@ -1221,6 +1282,11 @@ pub fn set_brightness(key: &str, pct: u32) -> Res<()> {
     let tu = tuning(key);
     let ts = targets()?;
     let (_, wmi, _) = ts.iter().find(|t| t.0 == key).ok_or_else(not_active)?;
+    if level(key).is_some_and(|l| l.1) {
+        lock(&SOFT).insert(key.into(), pct);
+        crate::dim::refresh();
+        return Ok(());
+    }
     let r = match wmi {
         Some(id) => {
             let _bus = lock(&BUS);
@@ -1569,6 +1635,14 @@ mod tests {
         let path = r"\\?\DISPLAY#GBT3214#5&9d93ce2&1&UID272#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}";
         assert!(r"DISPLAY\GBT3214\5&9d93ce2&1&UID272_0".to_uppercase().starts_with(&wmi_instance(path)));
         assert!(!r"DISPLAY\GBT3214\5&9d93ce2&1&UID2720_0".to_uppercase().starts_with(&wmi_instance(path)));
+    }
+
+    #[test]
+    fn the_veil_never_hides_the_screen() {
+        assert_eq!(veil_alpha(100), 0); // pleine luminosité : pas de voile
+        assert_eq!(veil_alpha(50), 108);
+        assert_eq!(veil_alpha(0), 217); // au plus sombre, l'écran reste lisible
+        assert_eq!(veil_alpha(250), 0);
     }
 
     /// Change vraiment la luminosité de chaque écran réglable, puis la rétablit.
