@@ -1996,3 +1996,22 @@ option::checkmark {
   margin: 0;
   color: var(--text-2);
 }
+
+/* Luminosité selon l'heure et déclencheurs de profil */
+.row .input.time {
+  /* Assez large pour « 07:30 PM » : le format suit la langue de Windows. */
+  width: 136px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hint {
+  padding: var(--s1) var(--s4);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-3);
+}
+
+.dialog .triggers .input,
+.dialog .triggers select {
+  width: 168px;
+}

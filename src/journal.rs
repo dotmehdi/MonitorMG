@@ -26,7 +26,8 @@ pub struct Entry {
     /// Millisecondes depuis 1970.
     pub at: u64,
     pub level: Level,
-    /// Fenêtre, Menu, Raccourci, Branchement, Bureau ou Système.
+    /// Fenêtre, Panneau, Menu, Raccourci, Branchement, Bureau, Système, Planification,
+    /// Alimentation ou Programme.
     pub source: String,
     pub text: String,
     /// Modification annulable au moment où elle a été faite.

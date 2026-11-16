@@ -61,3 +61,12 @@ test("traductions : texte français par défaut, arguments remplacés", () => {
   assert.equal(page("en")('t("Luminosité de {0}", "BenQ")'), "BenQ brightness");
   assert.equal(page("fr")('t("Luminosité de {0}", "BenQ")'), "Luminosité de BenQ");
 });
+
+test("heures des étapes : minutes depuis minuit <-> HH:MM", () => {
+  const ui = page();
+  assert.equal(ui("clock")(7 * 60 + 5), "07:05");
+  assert.equal(ui("clock")(0), "00:00");
+  assert.equal(ui("minutes")("22:30"), 22 * 60 + 30);
+  assert.equal(ui("minutes")("7:05"), 7 * 60 + 5);
+  for (const bad of ["", "24:00", "12:60", "midi", null]) assert.equal(ui("minutes")(bad), null);
+});

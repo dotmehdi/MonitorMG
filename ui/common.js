@@ -45,6 +45,15 @@ function latest(send, onError) {
   };
 }
 
+/** Minutes depuis minuit -> « HH:MM », le format des champs d'heure. */
+const clock = (min) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+
+/** « HH:MM » -> minutes depuis minuit ; null si ce n'est pas une heure. */
+function minutes(hhmm) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm ?? "");
+  return m && Number(m[1]) < 24 && Number(m[2]) < 60 ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
 const overlaps = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 

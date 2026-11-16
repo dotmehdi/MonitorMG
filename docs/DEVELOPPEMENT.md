@@ -10,8 +10,9 @@ Rust + [Tauri 2](https://tauri.app). L'interface est en HTML, CSS et JavaScript,
 | `src/main.rs` | Commandes, pipeline des actions (`act` : sérialisation, confirmation, journal, annulation), `save_with` (modifier et enregistrer les réglages), démarrage et raccourcis bureau. |
 | `src/views.rs` | Fenêtres : principale, panneau de la zone de notification, confirmation, identification. |
 | `src/tray.rs` | Icône et menu de la zone de notification, reconstruits une fois le calme revenu et seulement si leur contenu change (`changed`). |
-| `src/hotkeys.rs` | Raccourcis clavier globaux, extinction des écrans, raccourcis de luminosité. |
-| `src/watch.rs` | Branchements, changements d'affichage et de thème ; profils automatiques. |
+| `src/hotkeys.rs` | Raccourcis clavier globaux, extinction des écrans, raccourcis de luminosité, bascule d'entrée (`toggle_input`). |
+| `src/watch.rs` | Branchements, changements d'affichage et de thème ; profils automatiques ; alimentation et sortie de veille, transmises à `auto`. |
+| `src/auto.rs` | Automatismes : luminosité selon l'heure (`Schedule`), profils à heure fixe, au changement d'alimentation et au lancement d'un programme (`Triggers`). |
 | `src/store.rs` | Profils et réglages (`config.json`, réparés à la lecture), préférences DDC/CI par écran (`Screen`, `Feature`) et du panneau (`Panel`, `OffMode`, `PowerSignal`), mode portable, raccourcis bureau, couleur d'accent. |
 | `src/journal.rs` | Journal d'activité : une ligne JSON par événement (`Level`), écrite en un seul appel, fichier tournant à 512 Ko. Il nourrit la vue Activité et sert au diagnostic. |
 | `ui/` | Interface : `index.html`, `app.js`, `style.css`, `i18n.js` (traduction anglaise), `common.js` (outils partagés : `el`, envoi `latest`, aimantation `snap`), `vcp.js` (noms MCCS des codes et valeurs), le panneau de la zone de notification (`flyout.html`, `flyout.js`), plus les fenêtres de confirmation et d'identification. |
@@ -42,6 +43,14 @@ Un profil garde le niveau réel de luminosité de chaque écran, pas la position
 
 Le thread principal de Tauri gère l'icône, les menus, les fenêtres et les raccourcis globaux, et il prend lui-même le verrou des réglages. Règle : **ne jamais tenir `store`, `undo` ou `pending` pendant un appel à Tauri** (création d'un élément de menu, `available_monitors`, opérations sur une fenêtre ou l'icône) : depuis un autre thread, ces appels attendent le thread principal, qui peut attendre ce verrou. Copier d'abord ce qu'il faut, relâcher, puis appeler. `save_with` applique cette règle aux modifications des réglages ; les lints Clippy `significant_drop_in_scrutinee` et `significant_drop_tightening` (dans `Cargo.toml`) signalent un verrou gardé dans un `match` ou trop longtemps, mais pas dans une fermeture : la règle reste à appliquer à la relecture.
 
+### Automatismes
+
+Un seul thread (`auto::start`) se réveille à chaque minute et sur `auto::wake` (réglages modifiés, sortie de veille, changement d'alimentation). La luminosité prévue vient de `Schedule::target`, fonction pure : paliers, ou interpolation jusqu'à l'étape suivante, minuit compris. À une étape, tous les écrans la suivent ; entre deux étapes, en transition douce, un écran dont la luminosité s'écarte de la dernière valeur envoyée a été réglé à la main : il est laissé tranquille jusqu'à l'étape suivante. Un tic en retard d'une ou deux minutes rattrape les échéances sautées (`due`) ; après une veille rien n'est rattrapé, mais la luminosité prévue est réappliquée, 8 s après le réveil, le temps que DDC/CI réponde.
+
+Les déclencheurs d'un profil passent par `apply_profile`, donc par `act()` : journal, annulation, pas de boîte de dialogue. Le lancement d'un programme est détecté en comparant la liste des processus (`CreateToolhelp32Snapshot`) toutes les 5 s, seulement si un profil a ce déclencheur ; un programme déjà ouvert ne déclenche rien, sa fermeture non plus.
+
+La bascule d'entrée (`@input|<clé d'écran>` parmi les propriétaires de raccourcis) lit le code 0x60, puis écrit l'autre entrée de la paire. Son raccourci ne s'enregistre que par `assign_hotkey` : `set_screen` garde celui du fichier, quoi qu'envoie l'interface.
+
 ### Actions et annulation
 
 Chaque modification d'affichage passe par `act()` : capture de l'état d'avant, application (sous confirmation si elle est risquée), entrée dans le journal avec sa source, mémorisation de l'état d'avant pour « Annuler ». La fenêtre de confirmation rétablit l'état d'origine si personne ne répond.
@@ -53,7 +62,7 @@ Chaque modification d'affichage passe par `act()` : capture de l'état d'avant, 
 ## Commandes
 
 ```
-cargo test                     # 19 tests ; le test réel lit la config et les écrans et fait valider chaque opération par Windows, sans rien appliquer
+cargo test                     # 27 tests ; le test réel lit la config et les écrans et fait valider chaque opération par Windows, sans rien appliquer
 cargo test -- --ignored        # test réel de la luminosité, écran par écran (modifie puis rétablit)
 cargo clippy --all-targets     # aucun avertissement attendu, lints de verrous compris
 cargo audit                    # vulnérabilités connues des dépendances

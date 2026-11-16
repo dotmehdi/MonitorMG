@@ -4,6 +4,7 @@ const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 const PLUG = ""; // écran avec sa prise : « appliqué au branchement »
+const CLOCK = "\uE823"; // horloge : « déclencheurs automatiques »
 const GLYPH = { ok: "", warn: "", error: "", progress: "" };
 
 const icon = (glyph) => el("span", { class: "i", "aria-hidden": "true", text: glyph });
@@ -606,6 +607,8 @@ function ddcScreen(m) {
     );
   }
 
+  if (ext && !sc.blocked) rows.push(...inputToggleRows(m, sc, k, save));
+
   const out = [el("h2", { class: "group-title" }, m.name, el("span", { class: "group-meta", text: m.connector })), el("div", { class: "stack" }, ...rows)];
   if (!ext || sc.blocked) return out;
 
@@ -630,6 +633,72 @@ function ddcScreen(m) {
   feats.push(el("div", { class: "ddc-actions" }, el("button", { class: "btn", onclick: () => addCode(sc, save) }, icon(""), t("Ajouter un code VCP")), hasCaps(sc) && capsList(sc)));
   out.push(el("h3", { class: "sub-title" }, t("Réglages dans le panneau")), el("div", { class: "stack" }, ...feats));
   return out;
+}
+
+/**
+ * Bascule d'entrée par raccourci : un KVM logiciel pour un écran branché à deux machines.
+ * Proposée dès que l'écran annonce au moins deux entrées.
+ */
+function inputToggleRows(m, sc, k, save) {
+  const inputs = vcpValues(sc, VCP_INPUT);
+  if (inputs.length < 2) return [];
+  const pair = sc.inputs ?? [];
+  const selects = [0, 1].map((i) =>
+    el(
+      "select",
+      { id: `di${i}-${k}`, "aria-label": i ? t("Seconde entrée") : t("Première entrée"), onchange: onPick },
+      el("option", { value: "", selected: pair[i] == null, text: "—" }),
+      ...inputs.map((v) => el("option", { value: v, selected: pair[i] === v, text: vcpValueName(VCP_INPUT, v) })),
+    ),
+  );
+  function onPick() {
+    const [a, b] = selects.map((s) => (s.value ? Number(s.value) : null));
+    if (a == null || b == null) {
+      if (sc.inputs) save({ inputs: null });
+      return;
+    }
+    if (a === b) {
+      toast(t("Choisissez deux entrées différentes"), "error");
+      selects.forEach((s, i) => (s.value = pair[i] ?? ""));
+      return;
+    }
+    save({ inputs: [a, b] });
+  }
+  const keys = sc.input_hotkey ? keyParts(sc.input_hotkey) : null;
+  const what = t("basculer l'entrée de {0}", m.name);
+  const hotkey = el(
+    "button",
+    {
+      id: `dk-${k}`,
+      class: "btn",
+      disabled: !sc.inputs && !keys,
+      "aria-label": keys ? t("Raccourci pour {0} : {1}", what, keys.join("+")) : t("Choisir un raccourci pour {0}", what),
+      onclick: async () => {
+        const combo = await askHotkey(sc.input_hotkey, t("Appuyez sur la combinaison qui basculera l'entrée de {0}, où que vous soyez.", m.name));
+        if (combo !== undefined) run("input_hotkey", { key: m.key, hotkey: combo });
+      },
+    },
+    ...(keys ? keys.map((x) => el("kbd", { text: x })) : [t("Choisir…")]),
+  );
+  return [
+    el(
+      "div",
+      { class: "row" },
+      el("div", { class: "row-label" }, el("span", { text: t("Bascule d'entrée par raccourci") }), el("small", { text: t("Entre deux entrées, pour un écran partagé par deux machines") })),
+      el("div", { class: "range-inputs" }, selects[0], el("span", { text: t("et") }), selects[1]),
+    ),
+    el(
+      "div",
+      { class: "row sub" },
+      el(
+        "div",
+        { class: "row-label" },
+        el("span", { text: t("Raccourci") }),
+        el("small", { text: sc.inputs ? t("Change la source affichée : l'écran peut quitter ce PC") : t("Choisissez d'abord les deux entrées") }),
+      ),
+      hotkey,
+    ),
+  ];
 }
 
 function featureRows(m, sc, code, save) {
@@ -743,9 +812,10 @@ function renderProfiles() {
             "span",
             { class: "p-sub" },
             // La vignette montre déjà le nombre d'écrans : la place va au raccourci.
-            el("span", { class: p.auto || p.hotkey ? "sr-only" : null, text: n > 1 ? t("{0} écrans", n) : t("{0} écran", n) }),
+            el("span", { class: p.auto || p.hotkey || triggersText(p) ? "sr-only" : null, text: n > 1 ? t("{0} écrans", n) : t("{0} écran", n) }),
             p.active && el("span", { class: "sr-only", text: t(", affichage actuel") }),
             p.auto && el("span", { class: "i", title: t("Appliqué au branchement de ses écrans"), "aria-label": t("Appliqué au branchement"), text: PLUG }),
+            triggersText(p) && el("span", { class: "i", title: triggersText(p), "aria-label": triggersText(p), text: CLOCK }),
             p.hotkey && el("kbd", { title: t("Raccourci clavier"), text: keyParts(p.hotkey).join("+") }),
           ),
         ),
@@ -798,6 +868,7 @@ function profileMenu(p, idx, anchor, at) {
       checked: p.auto,
       run: () => run("profile_auto", { id: p.id, on: !p.auto }, p.auto ? t("Application au branchement retirée") : t("{0} s'appliquera au branchement de ses écrans", p.name)),
     },
+    { icon: CLOCK, label: t("Déclencheurs…"), run: () => triggersProfile(p) },
     "-",
     { icon: "", label: t("Renommer…"), run: () => renameProfile(p) },
     { icon: "", label: t("Raccourci clavier…"), hint: p.hotkey ? keyParts(p.hotkey).join("+") : null, run: () => hotkeyProfile(p) },
@@ -852,6 +923,53 @@ async function extrasProfile(p) {
     ],
     [{ label: t("Fermer"), value: "ok", primary: true }],
   );
+}
+
+/** « Appliqué chaque jour à 22:00, au lancement de jeu.exe » ; vide sans déclencheur. */
+function triggersText(p) {
+  const tr = p.triggers ?? {};
+  const parts = [
+    tr.at != null && t("chaque jour à {0}", clock(tr.at)),
+    tr.power === "ac" && t("au passage sur secteur"),
+    tr.power === "dc" && t("au passage sur batterie"),
+    tr.exe && t("au lancement de {0}", tr.exe),
+  ].filter(Boolean);
+  return parts.length ? t("Appliqué {0}", parts.join(", ")) : "";
+}
+
+/** Déclencheurs d'un profil : il s'applique seul à l'heure dite, au changement d'alimentation ou au lancement d'un programme. */
+async function triggersProfile(p) {
+  const tr = p.triggers ?? {};
+  const at = el("input", { id: "trg-at", class: "input", type: "time", value: tr.at == null ? "" : clock(tr.at), "aria-label": t("Chaque jour à") });
+  const power = el(
+    "select",
+    { id: "trg-power", "aria-label": t("Alimentation") },
+    ...[
+      ["", t("Jamais")],
+      ["ac", t("Au passage sur secteur")],
+      ["dc", t("Au passage sur batterie")],
+    ].map(([value, text]) => el("option", { value, selected: (tr.power ?? "") === value, text })),
+  );
+  const exe = el("input", { id: "trg-exe", class: "input", value: tr.exe ?? "", placeholder: t("jeu.exe"), maxlength: 80, autocomplete: "off", spellcheck: "false", "aria-label": t("Au lancement de") });
+  const r = await openDialog(
+    t("Déclencheurs de {0}", p.name),
+    [
+      el("p", { text: t("Le profil s'applique seul quand l'un de ces événements se produit.") }),
+      el(
+        "div",
+        { class: "stack triggers" },
+        row(t("Chaque jour à"), t("Vide : jamais"), at),
+        row(t("Alimentation"), t("Sur un portable"), power),
+        row(t("Au lancement de"), t("Nom du programme"), exe),
+      ),
+      el("p", { class: "dialog-note", text: t("L'application au branchement des écrans se règle dans le menu du profil.") }),
+    ],
+    [
+      { label: t("Enregistrer"), value: "ok", primary: true },
+      { label: CANCEL, value: "cancel" },
+    ],
+  );
+  if (r === "ok") run("profile_triggers", { id: p.id, triggers: { at: minutes(at.value), power: power.value || null, exe: exe.value.trim() } });
 }
 
 async function renameProfile(p) {
@@ -1002,6 +1120,7 @@ function renderSettings() {
   $("#data-dir").textContent = S.data_dir;
   $("#about-version").textContent = `Version ${S.version}${S.portable ? t(", édition portable") : ""}`;
   renderTrayIcons();
+  renderSchedule();
   for (const [id, combo, what] of [
     ["#off-hotkey", S.off_hotkey, t("éteindre les écrans")],
     ["#up-hotkey", S.up_hotkey, t("monter la luminosité")],
@@ -1015,6 +1134,7 @@ function renderSettings() {
   $("#step").value = String(S.panel.step);
   const rows = [
     ...S.profiles.filter((p) => p.hotkey).map((p) => [t("Appliquer {0}, partout dans Windows", p.name), keyParts(p.hotkey)]),
+    ...S.monitors.filter((m) => S.screens[m.key]?.input_hotkey).map((m) => [t("Basculer l'entrée de {0}, partout dans Windows", m.name), keyParts(S.screens[m.key].input_hotkey)]),
     [t("Enregistrer l'affichage actuel"), ["Ctrl", "S"]],
     [t("Annuler la dernière modification"), ["Ctrl", "Z"]],
     [t("Identifier les écrans"), ["Ctrl", "I"]],
@@ -1024,6 +1144,101 @@ function renderSettings() {
     [t("Relire les écrans"), ["F5"]],
   ];
   $("#shortcuts").replaceChildren(...rows.flatMap(([label, keys]) => [el("dt", { text: label }), el("dd", {}, ...keys.map((k) => el("kbd", { text: k })))]));
+}
+
+// ------------------------------------------------------------ luminosité selon l'heure
+
+const SCHEDULE_MAX = 12; // comme Schedule::MAX_STEPS côté backend
+
+const saveSchedule = (patch) => run("set_schedule", { schedule: { ...S.schedule, ...patch } });
+
+/** Étape de la planification : heure, luminosité, retrait. Repérée par son heure, unique. */
+function stepRow([min, pct]) {
+  const edit = (change) => saveSchedule({ steps: S.schedule.steps.map((s) => (s[0] === min ? change(s) : s)) });
+  const time = el("input", {
+    id: `sched-t-${min}`,
+    class: "input time",
+    type: "time",
+    value: clock(min),
+    "aria-label": t("Heure de l'étape"),
+    onchange: (e) => {
+      const m = minutes(e.target.value);
+      if (m == null || m === min) return void (e.target.value = clock(min));
+      if (S.schedule.steps.some((s) => s[0] === m)) {
+        toast(t("Une étape existe déjà à cette heure"), "error");
+        e.target.value = clock(min);
+        return;
+      }
+      edit((s) => [m, s[1]]);
+    },
+  });
+  const level = el("input", {
+    id: `sched-p-${min}`,
+    class: "input num",
+    type: "number",
+    min: 0,
+    max: 100,
+    value: pct,
+    "aria-label": t("Luminosité de l'étape, en %"),
+    onchange: (e) => edit((s) => [s[0], clamp(Math.round(Number(e.target.value) || 0), 0, 100)]),
+  });
+  const remove = el(
+    "button",
+    { class: "icon-btn", title: t("Retirer l'étape"), "aria-label": t("Retirer l'étape de {0}", clock(min)), onclick: () => saveSchedule({ steps: S.schedule.steps.filter((s) => s[0] !== min) }) },
+    icon("\uE711"),
+  );
+  return el("div", { class: "row sub" }, el("div", { class: "row-label" }, time), el("div", { class: "range-inputs" }, level, el("span", { text: "%" }), remove));
+}
+
+function addStep() {
+  const steps = S.schedule.steps;
+  // Deux heures après la dernière étape, à la même luminosité : il reste à l'ajuster.
+  let min = steps.length ? (steps.at(-1)[0] + 120) % 1440 : 8 * 60;
+  while (steps.some((s) => s[0] === min)) min = (min + 30) % 1440;
+  saveSchedule({ steps: [...steps, [min, steps.at(-1)?.[1] ?? 80]] });
+}
+
+function renderSchedule() {
+  const box = $("#sched");
+  // Pas de reconstruction sous un champ en cours de saisie, ni sans changement.
+  const f = document.activeElement;
+  if (f?.closest("#sched") && f.matches("input:not([type=checkbox])")) return;
+  const print = JSON.stringify(S.schedule);
+  if (box.dataset.for === print) return;
+  box.dataset.for = print;
+  const { on, smooth, steps } = S.schedule;
+  const rows = [
+    el(
+      "label",
+      { class: "row" },
+      el("span", { class: "row-label" }, el("span", { text: t("Régler la luminosité selon l'heure") }), el("small", { text: t("Tous les écrans réglables, chacun dans sa plage") })),
+      switchInput("sched-on", on, t("Régler la luminosité selon l'heure"), (e) => saveSchedule({ on: e.target.checked })),
+    ),
+  ];
+  if (on) {
+    rows.push(
+      el(
+        "div",
+        { class: "row" },
+        el("div", { class: "row-label" }, el("span", { text: t("Étapes") }), el("small", { text: steps.length ? t("Chaque jour, à l'heure dite") : t("Ajoutez une heure et sa luminosité") })),
+        el("button", { id: "sched-add", class: "btn", disabled: steps.length >= SCHEDULE_MAX, onclick: addStep }, icon("\uE710"), t("Ajouter une étape")),
+      ),
+      ...steps.map(stepRow),
+      el(
+        "label",
+        { class: "row" },
+        el(
+          "span",
+          { class: "row-label" },
+          el("span", { text: t("Transition douce") }),
+          el("small", { text: smooth ? t("La luminosité glisse d'une étape à la suivante, minute après minute") : t("La luminosité change d'un coup à chaque étape") }),
+        ),
+        switchInput("sched-smooth", smooth, t("Transition douce"), (e) => saveSchedule({ smooth: e.target.checked })),
+      ),
+      el("p", { class: "hint", text: t("Un réglage manuel reste en place jusqu'à l'étape suivante. Les réglages DDC/CI qui suivent la luminosité suivent aussi l'heure.") }),
+    );
+  }
+  box.replaceChildren(...rows);
 }
 
 // ------------------------------------------------------------ raccourcis clavier
@@ -1238,6 +1453,7 @@ $("#power-signal").addEventListener("change", (e) => savePanel({ power: Number(e
 $("#ddc-reread").addEventListener("click", () => loadCaps(true));
 // Saisie terminée : la vue mise de côté pendant la frappe est reconstruite.
 $("#ddc-screens").addEventListener("focusout", () => ddcStale && setTimeout(renderDdc, 0));
+$("#sched").addEventListener("focusout", () => setTimeout(() => S && renderSchedule(), 0));
 $("#autostart").addEventListener("change", (e) => run("set_autostart", { on: e.target.checked }, e.target.checked ? t("MonitorMG se lancera avec Windows") : t("Lancement avec Windows désactivé")));
 const saveConfirm = () => run("set_confirm", { on: $("#confirm-on").checked, secs: Number($("#confirm-secs").value) });
 $("#confirm-on").addEventListener("change", saveConfirm);

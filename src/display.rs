@@ -860,6 +860,7 @@ pub fn set_topology(kind: &str) -> Res<()> {
 // ---------------------------------------------------------------- luminosité
 
 pub const VCP_BRIGHTNESS: u8 = 0x10;
+pub const VCP_INPUT: u8 = 0x60;
 pub const VCP_POWER: u8 = 0xD6;
 fn no_brightness() -> &'static str {
     store::t("Cet écran ne permet pas de régler la luminosité", "This display doesn't support brightness control")

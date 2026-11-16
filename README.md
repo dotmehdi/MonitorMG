@@ -37,8 +37,8 @@ Les captures sont prises sur l'aperçu de développement (`dev/serve.js`), avec 
 
 | Édition | Pour qui | Comment |
 | --- | --- | --- |
-| Installateur `MonitorMG-2.1.0-setup.exe` | La plupart des utilisateurs | Double-cliquez. Aucun droit administrateur n'est demandé ; MonitorMG s'installe pour votre compte et apparaît dans le menu Démarrer. |
-| Portable `MonitorMG-2.1.0-portable.zip` | Clé USB, poste sans installation | Décompressez dans un dossier personnel et lancez `MonitorMG.exe`. Profils et journal restent dans le dossier `data`, à côté. |
+| Installateur `MonitorMG-2.2.0-setup.exe` | La plupart des utilisateurs | Double-cliquez. Aucun droit administrateur n'est demandé ; MonitorMG s'installe pour votre compte et apparaît dans le menu Démarrer. |
+| Portable `MonitorMG-2.2.0-portable.zip` | Clé USB, poste sans installation | Décompressez dans un dossier personnel et lancez `MonitorMG.exe`. Profils et journal restent dans le dossier `data`, à côté. |
 
 Prérequis : Microsoft Edge WebView2, déjà présent sur Windows 11. L'installateur l'ajoute si besoin ; pour l'édition portable, [téléchargez-le ici](https://go.microsoft.com/fwlink/p/?LinkId=2124703).
 
@@ -49,13 +49,19 @@ Le fichier `SHA256SUMS.txt` publié avec chaque version permet de vérifier que 
 | Où | Quoi |
 | --- | --- |
 | Disposition | Glissez un écran pour le déplacer : il s'aimante comme dans Windows. Au clavier, sélectionnez-le et utilisez les flèches. |
-| Profils | Cliquez un profil pour l'appliquer ; clic droit ou `⋯` pour le renommer, lui donner un raccourci clavier, créer son raccourci sur le bureau, l'appliquer au branchement de ses écrans (idéal avec un dock) ou choisir les réglages qu'il applique : mise à l'échelle, HDR et luminosité peuvent être laissés tels quels. |
-| DDC/CI | Pour chaque écran : nom et présence dans le panneau, plage de luminosité (pour harmoniser des écrans différents), code VCP de la luminosité, blocage de DDC/CI. Puis les commandes annoncées par l'écran, à afficher dans le panneau : un curseur pour les réglages continus (contraste, volume, gains…), des choix pour les autres (entrée, préréglage couleur, sourdine), un bouton marche/arrêt. Un réglage continu peut suivre la luminosité. Un code absent de la liste peut être ajouté à la main. Enfin, le comportement de « Éteindre les écrans » : veille de Windows, signal DDC/CI, ou les deux. |
+| Profils | Cliquez un profil pour l'appliquer ; clic droit ou `⋯` pour le renommer, lui donner un raccourci clavier, créer son raccourci sur le bureau, l'appliquer au branchement de ses écrans (idéal avec un dock), lui donner des déclencheurs (chaque jour à heure fixe, au passage sur secteur ou sur batterie, au lancement d'un programme) ou choisir les réglages qu'il applique : mise à l'échelle, HDR et luminosité peuvent être laissés tels quels. |
+| DDC/CI | Pour chaque écran : nom et présence dans le panneau, plage de luminosité (pour harmoniser des écrans différents), code VCP de la luminosité, blocage de DDC/CI. Puis les commandes annoncées par l'écran, à afficher dans le panneau : un curseur pour les réglages continus (contraste, volume, gains…), des choix pour les autres (entrée, préréglage couleur, sourdine), un bouton marche/arrêt. Un réglage continu peut suivre la luminosité. Un code absent de la liste peut être ajouté à la main. Pour un écran branché à deux machines, la bascule d'entrée par raccourci : deux entrées et une combinaison de touches remplacent un boîtier KVM. Enfin, le comportement de « Éteindre les écrans » : veille de Windows, signal DDC/CI, ou les deux. |
 | Activité | L'historique de chaque changement, d'où qu'il vienne (fenêtre, menu, raccourci, branchement), avec **Annuler**. |
-| Paramètres | Lancement avec Windows, icône de la zone de notification (cinq au choix), confirmation des changements et son délai, raccourcis pour éteindre les écrans, monter ou baisser la luminosité et le pas de luminosité, liste des raccourcis, dossier des données. |
+| Paramètres | Lancement avec Windows, icône de la zone de notification (cinq au choix), luminosité selon l'heure (des étapes horaires, en transition douce ou par paliers), confirmation des changements et son délai, raccourcis pour éteindre les écrans, monter ou baisser la luminosité et le pas de luminosité, liste des raccourcis, dossier des données. |
 | Zone de notification | Clic gauche : le panneau. Luminosité de chaque écran (molette sur un curseur), un seul curseur pour tous si vous le souhaitez, réglages DDC/CI choisis, bouton marche/arrêt, profils, extinction des écrans. Double clic : la fenêtre. Clic droit : profils, annulation, et pour chaque écran la luminosité (paliers, ou le panneau pour le réglage précis), la résolution, la fréquence, l'activation et l'écran principal ; projection, identification, extinction des écrans. |
 
 Un changement risqué (résolution, fréquence, orientation, activation, projection) demande confirmation : sans réponse, l'affichage précédent revient au bout de 15 s. Le délai, de 5 à 60 s, se règle dans Paramètres.
+
+### Automatismes
+
+- **Luminosité selon l'heure** (Paramètres) : ajoutez des étapes, par exemple 70 % à 7 h 30 et 25 % à 22 h 30. Tous les écrans réglables les suivent chaque jour, chacun dans sa plage ; en transition douce, la luminosité glisse d'une étape à la suivante minute après minute. Un réglage manuel reste en place jusqu'à l'étape suivante. Les réglages DDC/CI qui suivent la luminosité (température de couleur, contraste…) suivent aussi l'heure : de quoi réchauffer l'image le soir, dans l'écran lui-même.
+- **Déclencheurs de profils** (menu du profil, « Déclencheurs… ») : le profil s'applique seul chaque jour à l'heure choisie, au passage sur secteur ou sur batterie, ou au lancement d'un programme (son nom, comme `jeu.exe`). Chaque application est consignée dans l'activité et s'annule comme les autres. Rien ne se passe à la fermeture du programme, et une heure passée pendant la veille du PC n'est pas rattrapée.
+- **Bascule d'entrée** (vue DDC/CI) : choisissez deux entrées de l'écran et un raccourci. Il passe de l'une à l'autre, où que vous soyez dans Windows. Avec MonitorMG sur les deux machines, chacune reprend l'écran d'une combinaison de touches.
 
 ### Raccourcis clavier
 
@@ -64,6 +70,7 @@ Un changement risqué (résolution, fréquence, orientation, activation, project
 | Celui de votre choix | Appliquer un profil, partout dans Windows |
 | Celui de votre choix | Éteindre les écrans, partout dans Windows ; une touche ou la souris les rallume |
 | Ceux de votre choix | Monter ou baisser la luminosité de tous les écrans |
+| Celui de votre choix | Basculer l'entrée d'un écran entre deux sources, partout dans Windows |
 | `Ctrl+S` | Enregistrer l'affichage actuel comme profil |
 | `Ctrl+Z` | Annuler la dernière modification |
 | `Ctrl+I` | Identifier les écrans |
@@ -91,6 +98,7 @@ MonitorMG fonctionne entièrement sur votre ordinateur. Il ne se connecte jamais
 - **Une action ne fait pas ce qui est attendu** : la vue Activité indique ce qui s'est passé et pourquoi. Le journal complet est dans `logs\activite.jsonl`, sous le dossier des données (Paramètres, « Ouvrir le dossier »). Joignez-le à votre signalement.
 - **Écran noir après un changement** : attendez la fin du délai, l'affichage précédent revient seul. Sinon, `Ctrl+Z` dans la fenêtre ou « Annuler » dans le menu de notification.
 - **Un écran n'apparaît pas dans le panneau, ou la vue DDC/CI dit « Commandes illisibles »** : activez DDC/CI dans le menu de l'écran. Certains adaptateurs et câbles (HDMI optique, stations d'accueil bon marché) ne le transmettent pas. Si le curseur de luminosité ne change rien, essayez un autre code de luminosité dans la vue DDC/CI.
+- **La luminosité change toute seule** : la luminosité selon l'heure est active (Paramètres). La vue Activité montre chaque étape appliquée, source « Planification ».
 - **Le PC ralentit quand le panneau s'ouvre** : bloquez DDC/CI pour l'écran en cause dans la vue DDC/CI.
 - **Un écran éteint par DDC/CI ne se rallume pas depuis MonitorMG** : certains écrans disparaissent de Windows une fois éteints. Rallumez-le avec son bouton, ou choisissez le signal « Veille » dans la vue DDC/CI.
 - **Deux écrans du même modèle** (dock avec deux écrans identiques) : MonitorMG ajoute leur numéro à leur nom, « HP E24 (1) » et « HP E24 (2) ». La vue DDC/CI permet de leur donner un nom plus parlant.
