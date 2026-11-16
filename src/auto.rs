@@ -98,6 +98,11 @@ impl State {
         if !schedule.on {
             return;
         }
+        // Au démarrage, la luminosité n'a pas encore été lue : sans elle, aucun écran ne
+        // passe pour réglable et rien ne serait appliqué avant l'étape suivante.
+        if display::monitors().is_ok_and(|ms| ms.iter().all(|m| m.brightness.is_none())) {
+            display::read_brightness();
+        }
         if let Some(pct) = schedule.target(now().1) {
             if self.set(app, pct) {
                 note(app, Level::Info, Src::Schedule, &tr!("Luminosité selon l'heure : {pct}{NNBSP}%", "Brightness by time of day: {pct}%"));
