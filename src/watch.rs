@@ -1,4 +1,5 @@
-//! Surveillance des branchements, des changements d'affichage et du thème.
+//! Surveillance des branchements, des changements d'affichage, du thème, de
+//! l'alimentation et de la sortie de veille.
 
 use super::*;
 
@@ -51,6 +52,13 @@ unsafe extern "system" fn watch_proc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         if let Some(tx) = WATCH.get() {
             let _ = tx.send(());
+        }
+    }
+    if msg == WM_POWERBROADCAST {
+        match wp.0 as u32 {
+            PBT_APMPOWERSTATUSCHANGE => auto::wake(auto::Wake::Power),
+            PBT_APMRESUMEAUTOMATIC => auto::wake(auto::Wake::Resume),
+            _ => {}
         }
     }
     DefWindowProcW(h, msg, wp, lp)

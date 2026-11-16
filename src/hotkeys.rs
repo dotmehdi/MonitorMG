@@ -1,4 +1,4 @@
-//! Raccourcis clavier globaux : profils, extinction des écrans, luminosité.
+//! Raccourcis clavier globaux : profils, extinction des écrans, luminosité, bascule d'entrée.
 
 use super::*;
 
@@ -7,13 +7,16 @@ use super::*;
 pub(crate) const OFF: &str = "@off";
 pub(crate) const UP: &str = "@up";
 pub(crate) const DOWN: &str = "@down";
+/// Préfixe du propriétaire d'une bascule d'entrée, suivi de la clé de l'écran.
+pub(crate) const INPUT: &str = "@input|";
 
 /// Raccourcis globaux : (propriétaire, combinaison). Le propriétaire est un id de profil,
-/// ou `OFF`, `UP`, `DOWN`.
+/// `OFF`, `UP`, `DOWN`, ou `INPUT` suivi d'une clé d'écran.
 pub(crate) fn hotkeys(s: &store::Store) -> Vec<(String, String)> {
     let actions = [(OFF, &s.off_hotkey), (UP, &s.up_hotkey), (DOWN, &s.down_hotkey)];
     let actions = actions.into_iter().filter_map(|(o, h)| Some((o.to_string(), h.clone()?)));
-    s.profiles.iter().filter_map(|p| Some((p.id.clone(), p.hotkey.clone()?))).chain(actions).collect()
+    let inputs = s.screens.iter().filter_map(|(k, sc)| Some((format!("{INPUT}{k}"), sc.input_hotkey.clone()?)));
+    s.profiles.iter().filter_map(|p| Some((p.id.clone(), p.hotkey.clone()?))).chain(actions).chain(inputs).collect()
 }
 
 pub(crate) fn hotkey_slot<'a>(s: &'a mut store::Store, owner: &str) -> Res<&'a mut Option<String>> {
@@ -21,6 +24,7 @@ pub(crate) fn hotkey_slot<'a>(s: &'a mut store::Store, owner: &str) -> Res<&'a m
         OFF => &mut s.off_hotkey,
         UP => &mut s.up_hotkey,
         DOWN => &mut s.down_hotkey,
+        o if o.starts_with(INPUT) => &mut s.screens.entry(o[INPUT.len()..].to_string()).or_default().input_hotkey,
         id => &mut s.get_mut(id)?.hotkey,
     })
 }
@@ -59,6 +63,10 @@ pub(crate) fn on_hotkey(app: &AppHandle, sc: &Shortcut) {
     match owner {
         Some((o, _)) if o == OFF => screens_off(app, Src::Hotkey),
         Some((o, _)) if o == UP || o == DOWN => nudge(app, o == UP),
+        Some((o, _)) if o.starts_with(INPUT) => {
+            let app = app.clone();
+            thread::spawn(move || toggle_input(&app, &o[INPUT.len()..]));
+        }
         Some((id, _)) => {
             let app = app.clone();
             thread::spawn(move || outcome(&app, apply_profile(&app, Src::Hotkey, &id)));
@@ -130,4 +138,75 @@ pub(crate) fn nudge(app: &AppHandle, up: bool) {
         }
         changed(&app);
     });
+}
+
+/// Nom MCCS d'une entrée (code 0x60), pour le journal ; les mêmes que dans `ui/vcp.js`.
+fn input_name(v: u8) -> String {
+    match v {
+        0x01 => "VGA 1",
+        0x02 => "VGA 2",
+        0x03 => "DVI 1",
+        0x04 => "DVI 2",
+        0x0F => "DisplayPort 1",
+        0x10 => "DisplayPort 2",
+        0x11 => "HDMI 1",
+        0x12 => "HDMI 2",
+        0x1B => "USB-C",
+        _ => return format!("0x{v:02X}"),
+    }
+    .into()
+}
+
+/// Entrée vers laquelle basculer : la seconde si l'écran affiche la première, sinon la
+/// première (état illisible ou autre entrée compris).
+fn next_input((a, b): (u8, u8), current: Option<u32>) -> u8 {
+    if current == Some(u32::from(a)) {
+        b
+    } else {
+        a
+    }
+}
+
+/// Raccourci de bascule d'entrée : un KVM logiciel pour un écran branché à deux machines.
+/// Pas de confirmation, c'est le but ; le journal garde la trace.
+pub(crate) fn toggle_input(app: &AppHandle, key: &str) {
+    let Some(pair) = store(app).screens.get(key).and_then(|sc| sc.inputs) else { return };
+    let name = display::name(key);
+    // Certains écrans renvoient l'entrée avec un octet de poids fort.
+    let current = display::vcp_get(key, &[display::VCP_INPUT]).ok().and_then(|v| v.first().and_then(|x| x.1)).map(|(cur, _)| cur & 0xFF);
+    let to = next_input(pair, current);
+    match display::vcp_set(key, display::VCP_INPUT, to.into()) {
+        Ok(()) => note(app, Level::Ok, Src::Hotkey, &tr!("{name} : entrée {}", "{name}: input {}", input_name(to))),
+        Err(e) => {
+            let m = tr!("{name} : changement d'entrée impossible. {e}", "{name}: can't switch input. {e}");
+            note(app, Level::Error, Src::Hotkey, &m);
+            report(app, &m);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn input_toggle_picks_the_other_input() {
+        assert_eq!(next_input((0x0F, 0x11), Some(0x0F)), 0x11);
+        assert_eq!(next_input((0x0F, 0x11), Some(0x11)), 0x0F);
+        // Entrée illisible ou autre : on va vers la première.
+        assert_eq!(next_input((0x0F, 0x11), None), 0x0F);
+        assert_eq!(next_input((0x0F, 0x11), Some(0x03)), 0x0F);
+        assert_eq!((input_name(0x11), input_name(0x99)), ("HDMI 1".to_string(), "0x99".to_string()));
+    }
+
+    #[test]
+    fn input_hotkeys_are_listed_with_their_screen() {
+        let mut s = store::Store { off_hotkey: Some("Ctrl+Alt+KeyO".into()), ..Default::default() };
+        s.screens.insert("écran-a".into(), store::Screen { input_hotkey: Some("Ctrl+Alt+KeyI".into()), ..Default::default() });
+        s.screens.insert("écran-b".into(), store::Screen::default());
+        let keys = hotkeys(&s);
+        assert_eq!(keys, [(OFF.to_string(), "Ctrl+Alt+KeyO".to_string()), (format!("{INPUT}écran-a"), "Ctrl+Alt+KeyI".to_string())]);
+        *hotkey_slot(&mut s, &format!("{INPUT}écran-b")).unwrap() = Some("F9".into());
+        assert_eq!(s.screens["écran-b"].input_hotkey.as_deref(), Some("F9"));
+    }
 }
