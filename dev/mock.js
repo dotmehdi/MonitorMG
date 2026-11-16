@@ -75,12 +75,15 @@
   state.up_hotkey = null;
   state.down_hotkey = null;
   state.panel = { linked: false, power: 5, off: "soft", step: 10 };
+  state.schedule = { on: true, smooth: true, steps: [[7 * 60 + 30, 70], [13 * 60, 85], [19 * 60, 55], [22 * 60 + 30, 25]] };
+  const triggers = (o = {}) => ({ at: null, power: null, exe: "", ...o });
+  state.profiles.forEach((p, i) => (p.triggers = triggers([{}, { power: "dc" }, {}, { exe: "jeu.exe" }][i])));
   // Capacités relevées sur un AORUS FO32U2 réel.
   const aorus = { 2: [], 4: [], 5: [], 6: [], 8: [], 11: [], 12: [], 16: [], 18: [], 20: [4, 5, 7, 8, 11], 22: [], 24: [], 26: [], 82: [], 96: [1, 3, 15, 17], 98: [], 135: [], 141: [1, 2], 172: [], 174: [], 178: [], 182: [], 198: [], 200: [], 202: [], 204: [1, 2, 3, 4, 6, 10, 13], 214: [1, 4, 5], 223: [], 253: [], 255: [] };
   const feat = (code, o = {}) => ({ code, range: [0, 100], linked: false, stop: 100, ...o });
-  const screen = (o) => ({ name: "", hidden: false, blocked: false, vcp: null, range: [0, 100], features: [], caps: {}, ...o });
+  const screen = (o) => ({ name: "", hidden: false, blocked: false, vcp: null, range: [0, 100], features: [], caps: {}, inputs: null, input_hotkey: null, ...o });
   state.screens = {
-    a: screen({ caps: aorus, features: [feat(0x12), feat(0x62), feat(0x60), feat(0x14), feat(0xd6)] }),
+    a: screen({ caps: aorus, features: [feat(0x12), feat(0x62), feat(0x60), feat(0x14), feat(0xd6)], inputs: [15, 17], input_hotkey: "Ctrl+Alt+KeyK" }),
     c: screen({ name: L("Vertical", "Vertical"), caps: { 16: [], 18: [], 98: [], 214: [1, 4, 5] }, features: [feat(0x12, { linked: true, stop: 60 })] }),
   };
   const ddc = { 0x12: 50, 0x62: 2, 0x60: 15, 0x14: 5, 0xd6: 1 };
@@ -108,6 +111,12 @@
         if (cmd === "profile_hotkey" && args.hotkey === "Ctrl+KeyW") throw L("Cette combinaison est déjà prise par une autre application", "This combination is already taken by another app");
         if (cmd === "profile_apply" && args.id === "2") return L("Un écran du profil n'est pas branché", "One display from the profile is not connected");
         if (cmd === "profile_auto") state.profiles.find((p) => p.id === args.id).auto = args.on;
+        if (cmd === "profile_triggers") state.profiles.find((p) => p.id === args.id).triggers = { ...args.triggers, at: args.triggers.at ?? null };
+        if (cmd === "set_schedule") {
+          const steps = [...args.schedule.steps].sort((a, b) => a[0] - b[0]);
+          return structuredClone((state.schedule = { ...args.schedule, steps }));
+        }
+        if (cmd === "input_hotkey") state.screens[args.key].input_hotkey = args.hotkey;
         if (cmd === "profile_include") state.profiles.find((p) => p.id === args.id).extras.find((x) => x.id === args.setting).on = args.on;
         if (cmd === "set_tray_icon") state.tray_icon = args.name;
         if (cmd === "action_hotkey") state[{ "@off": "off_hotkey", "@up": "up_hotkey", "@down": "down_hotkey" }[args.action]] = args.hotkey;

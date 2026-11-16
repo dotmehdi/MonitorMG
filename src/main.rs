@@ -8,6 +8,7 @@ macro_rules! tr {
     };
 }
 
+mod auto;
 mod display;
 mod journal;
 mod hotkeys;
@@ -58,6 +59,9 @@ enum Src {
     Plug,
     Desktop,
     System,
+    Schedule,
+    Power,
+    Program,
 }
 
 impl Src {
@@ -70,6 +74,9 @@ impl Src {
             Src::Plug => t("Branchement", "Connection"),
             Src::Desktop => t("Bureau", "Desktop"),
             Src::System => t("Système", "System"),
+            Src::Schedule => t("Planification", "Schedule"),
+            Src::Power => t("Alimentation", "Power"),
+            Src::Program => t("Programme", "Program"),
         }
     }
 }
@@ -101,6 +108,7 @@ struct ProfileView {
     tiles: Vec<display::Tile>,
     active: bool,
     auto: bool,
+    triggers: store::Triggers,
     extras: Vec<ExtraView>,
 }
 
@@ -136,6 +144,7 @@ struct View {
     screens: BTreeMap<String, store::Screen>,
     /// Code de luminosité retenu automatiquement pour chaque écran, comme le moteur.
     auto_vcp: BTreeMap<String, u8>,
+    schedule: store::Schedule,
 }
 
 /// Valeur d'un réglage DDC/CI : en % pour un réglage continu, brute pour un réglage à
@@ -157,7 +166,7 @@ async fn state(app: AppHandle) -> Res<View> {
     let monitors = display::monitors()?;
     read_brightness(&app, false);
     let sig = display::signature().unwrap_or_default();
-    let (profiles, confirm, hotkeys, panel, mut screens) = {
+    let (profiles, confirm, hotkeys, panel, mut screens, schedule) = {
         let s = store(&app);
         let views = s
             .profiles
@@ -169,13 +178,14 @@ async fn state(app: AppHandle) -> Res<View> {
                 tiles: p.tiles.clone(),
                 active: p.sig == sig,
                 auto: p.auto,
+                triggers: p.triggers.clone(),
                 extras: store::EXTRAS
                     .iter()
                     .map(|&id| ExtraView { id, on: !p.exclude.contains(id), stored: stored(&p.snap, id) })
                     .collect(),
             })
             .collect();
-        (views, s.confirm, [s.off_hotkey.clone(), s.up_hotkey.clone(), s.down_hotkey.clone()], s.panel.clone(), s.screens.clone())
+        (views, s.confirm, [s.off_hotkey.clone(), s.up_hotkey.clone(), s.down_hotkey.clone()], s.panel.clone(), s.screens.clone(), s.schedule.clone())
     };
     let [off_hotkey, up_hotkey, down_hotkey] = hotkeys;
     for m in &monitors {
@@ -202,6 +212,7 @@ async fn state(app: AppHandle) -> Res<View> {
         panel,
         screens,
         auto_vcp,
+        schedule,
     })
 }
 
@@ -350,8 +361,9 @@ async fn ddc_power(app: AppHandle, key: String, on: Option<bool>) -> Res<u32> {
 #[tauri::command]
 async fn set_screen(app: AppHandle, key: String, screen: store::Screen) -> Res<store::Screen> {
     let kept = save_with(&app, |s| {
-        let caps = s.screens.get(&key).map(|x| x.caps.clone()).unwrap_or_default();
-        let screen = screen.checked(caps)?;
+        let (caps, input_hotkey) = s.screens.get(&key).map(|x| (x.caps.clone(), x.input_hotkey.clone())).unwrap_or_default();
+        // Le raccourci de bascule d'entrée passe par `input_hotkey`, qui l'enregistre auprès de Windows.
+        let screen = store::Screen { input_hotkey, ..screen }.checked(caps)?;
         if screen == store::Screen::default() {
             s.screens.remove(&key);
         } else {
@@ -545,6 +557,46 @@ async fn profile_auto(app: AppHandle, id: String, on: bool) -> Res<()> {
         p.auto = on;
         Ok(())
     })?;
+    changed(&app);
+    Ok(())
+}
+
+/// Déclencheurs d'un profil : heure fixe, changement d'alimentation, lancement d'un programme.
+#[tauri::command]
+async fn profile_triggers(app: AppHandle, id: String, triggers: store::Triggers) -> Res<()> {
+    let name = save_with(&app, |s| {
+        let p = s.get_mut(&id)?;
+        p.triggers = triggers.checked();
+        Ok(p.name.clone())
+    })?;
+    note(&app, Level::Ok, Src::Window, &tr!("Déclencheurs du profil « {name} » modifiés", "Triggers of profile “{name}” changed"));
+    changed(&app);
+    Ok(())
+}
+
+/// Luminosité selon l'heure : enregistrée, puis appliquée aussitôt si elle est active.
+/// Renvoie les étapes retenues (triées, dans les bornes).
+#[tauri::command]
+async fn set_schedule(app: AppHandle, schedule: store::Schedule) -> Res<store::Schedule> {
+    let kept = save_with(&app, |s| {
+        s.schedule = schedule.checked();
+        Ok(s.schedule.clone())
+    })?;
+    auto::wake(auto::Wake::Apply);
+    changed(&app);
+    Ok(kept)
+}
+
+/// Raccourci qui bascule l'entrée d'un écran entre ses deux entrées choisies.
+#[tauri::command]
+async fn input_hotkey(app: AppHandle, key: String, hotkey: Option<String>) -> Res<()> {
+    assign_hotkey(&app, &format!("{INPUT}{key}"), hotkey.clone())?;
+    let name = display::name(&key);
+    let what = match &hotkey {
+        Some(h) => tr!("Raccourci {h} attribué au changement d'entrée de {name}", "Shortcut {h} assigned to switching the input of {name}"),
+        None => tr!("Raccourci de changement d'entrée de {name} retiré", "Input shortcut removed from {name}"),
+    };
+    note(&app, Level::Ok, Src::Window, &what);
     changed(&app);
     Ok(())
 }
@@ -744,6 +796,9 @@ fn apply_profile(app: &AppHandle, src: Src, id: &str) -> Res<String> {
     let (name, snap) = (p.name, p.snap);
     let what = match src {
         Src::Plug => tr!("Profil « {name} » appliqué au branchement", "Profile “{name}” applied on connect"),
+        Src::Schedule => tr!("Profil « {name} » appliqué à l'heure prévue", "Profile “{name}” applied on schedule"),
+        Src::Power => tr!("Profil « {name} » appliqué au changement d'alimentation", "Profile “{name}” applied on power change"),
+        Src::Program => tr!("Profil « {name} » appliqué au lancement de son programme", "Profile “{name}” applied when its program started"),
         _ => tr!("Profil « {name} » appliqué", "Profile “{name}” applied"),
     };
     act(app, src, &what, false, || display::restore(&snap, extras).map(missing_text))
@@ -1015,6 +1070,9 @@ fn main() {
             profile_hotkey,
             action_hotkey,
             profile_auto,
+            profile_triggers,
+            set_schedule,
+            input_hotkey,
             profile_include,
             profile_shortcut,
             set_autostart,
@@ -1046,6 +1104,8 @@ fn main() {
             retune(&h);
             read_brightness(&h, true);
             watch_displays(h.clone());
+            auto::start(h.clone());
+            auto::watch_programs(h.clone());
             if !hidden {
                 show_main(&h);
             }

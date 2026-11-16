@@ -30,6 +30,47 @@ pub struct Profile {
     /// Réglages à ne pas appliquer : "scale", "hdr" ou "brightness".
     #[serde(default)]
     pub exclude: BTreeSet<String>,
+    /// Déclencheurs automatiques, en plus du branchement (`auto`).
+    #[serde(default)]
+    pub triggers: Triggers,
+}
+
+/// Source d'alimentation d'un portable.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum PowerSource {
+    /// Secteur.
+    Ac,
+    /// Batterie.
+    Dc,
+}
+
+/// Déclencheurs d'un profil : il s'applique seul à l'heure dite, au changement
+/// d'alimentation ou au lancement d'un programme.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(default)]
+pub struct Triggers {
+    /// Heure d'application quotidienne, en minutes depuis minuit.
+    #[serde(deserialize_with = "lenient")]
+    pub at: Option<u32>,
+    #[serde(deserialize_with = "lenient")]
+    pub power: Option<PowerSource>,
+    /// Nom de l'exécutable (« jeu.exe ») dont le lancement applique le profil ; vide : aucun.
+    pub exe: String,
+}
+
+impl Triggers {
+    /// Remet dans les bornes : heure du jour, et nom de fichier seul (ni chemin ni
+    /// caractère de contrôle), avec son extension.
+    pub fn checked(mut self) -> Self {
+        self.at = self.at.filter(|&m| m < 1440);
+        let file = self.exe.trim().rsplit(['\\', '/']).next().unwrap_or_default();
+        self.exe = file.trim().chars().filter(|c| !c.is_control()).take(80).collect();
+        if !self.exe.is_empty() && !self.exe.to_lowercase().ends_with(".exe") {
+            self.exe.push_str(".exe");
+        }
+        self
+    }
 }
 
 /// Réglages qu'un profil peut exclure.
@@ -103,11 +144,26 @@ pub struct Screen {
     pub features: Vec<Feature>,
     /// Codes annoncés par l'écran, lus une fois : la lecture prend plusieurs secondes.
     pub caps: BTreeMap<u8, Vec<u8>>,
+    /// Les deux entrées (valeurs du code 0x60) entre lesquelles `input_hotkey` bascule.
+    pub inputs: Option<(u8, u8)>,
+    /// Raccourci global de bascule d'entrée ; attribué par `assign_hotkey`, jamais par
+    /// l'enregistrement des préférences.
+    pub input_hotkey: Option<String>,
 }
 
 impl Default for Screen {
     fn default() -> Self {
-        Self { name: String::new(), hidden: false, blocked: false, vcp: None, range: Range::FULL, features: Vec::new(), caps: BTreeMap::new() }
+        Self {
+            name: String::new(),
+            hidden: false,
+            blocked: false,
+            vcp: None,
+            range: Range::FULL,
+            features: Vec::new(),
+            caps: BTreeMap::new(),
+            inputs: None,
+            input_hotkey: None,
+        }
     }
 }
 
@@ -151,7 +207,11 @@ impl Screen {
         if self.features.iter().any(|f| COMMANDS.contains(&f.code)) {
             return Err(t("Ce code est une commande (remise à zéro…), pas un réglage", "This code is a command (reset…), not a setting").into());
         }
-        Ok(Self { caps, ..self }.repaired())
+        let s = Self { caps, ..self };
+        if s.inputs.is_some_and(|(a, b)| a == b || !s.allows(display::VCP_INPUT, a.into()) || !s.allows(display::VCP_INPUT, b.into())) {
+            return Err(t("Choisissez deux entrées différentes parmi celles de l'écran", "Pick two different inputs among those of the display").into());
+        }
+        Ok(s.repaired())
     }
 
     /// Remet dans les bornes ce qui ne l'est pas : à la lecture du fichier, on corrige
@@ -159,6 +219,7 @@ impl Screen {
     pub fn repaired(mut self) -> Self {
         self.name = self.name.trim().chars().filter(|c| !c.is_control()).take(40).collect();
         self.vcp = self.vcp.filter(|&c| c != 0);
+        self.inputs = self.inputs.filter(|(a, b)| a != b);
         if !self.range.valid() {
             self.range = Range::FULL;
         }
@@ -261,6 +322,56 @@ impl Panel {
     }
 }
 
+/// Luminosité selon l'heure : chaque jour, tous les écrans réglables suivent ces étapes.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct Schedule {
+    pub on: bool,
+    /// Transition continue d'une étape à la suivante, au lieu d'un palier à chaque étape.
+    pub smooth: bool,
+    /// (minutes depuis minuit, luminosité en %), triées par heure.
+    pub steps: Vec<(u32, u32)>,
+}
+
+impl Default for Schedule {
+    fn default() -> Self {
+        Self { on: false, smooth: true, steps: Vec::new() }
+    }
+}
+
+impl Schedule {
+    pub const MAX_STEPS: usize = 12;
+
+    /// Étapes dans les bornes, triées, une seule par heure.
+    pub fn checked(mut self) -> Self {
+        self.steps.retain(|s| s.0 < 1440);
+        for s in &mut self.steps {
+            s.1 = s.1.min(100);
+        }
+        self.steps.sort_by_key(|s| s.0);
+        self.steps.dedup_by_key(|s| s.0);
+        self.steps.truncate(Self::MAX_STEPS);
+        self
+    }
+
+    /// Luminosité prévue à `minute` (depuis minuit). Paliers : celle de la dernière étape
+    /// passée, la veille au soir s'il le faut. Transitions : interpolée vers la suivante.
+    pub fn target(&self, minute: u32) -> Option<u32> {
+        let (first, last) = (self.steps.first()?, self.steps.last()?);
+        let i = self.steps.iter().rposition(|s| s.0 <= minute);
+        let cur = i.map_or(last, |i| &self.steps[i]);
+        if !self.smooth || self.steps.len() < 2 {
+            return Some(cur.1);
+        }
+        let next = i.and_then(|i| self.steps.get(i + 1)).unwrap_or(first);
+        // Durées modulo un jour : l'étape du soir rejoint celle du matin par minuit.
+        let span = f64::from((next.0 + 1440 - cur.0) % 1440).max(1.0);
+        let done = f64::from((minute + 1440 - cur.0) % 1440);
+        let (a, b) = (f64::from(cur.1), f64::from(next.1));
+        Some((a + (b - a) * done / span).round() as u32)
+    }
+}
+
 #[derive(Serialize, Deserialize, Default)]
 pub struct Store {
     #[serde(default)]
@@ -284,6 +395,8 @@ pub struct Store {
     pub panel: Panel,
     #[serde(default)]
     pub screens: BTreeMap<String, Screen>,
+    #[serde(default)]
+    pub schedule: Schedule,
 }
 
 /// Dossier de l'exécutable s'il contient un fichier `portable`.
@@ -333,6 +446,10 @@ impl Store {
         for sc in self.screens.values_mut() {
             *sc = std::mem::take(sc).repaired();
         }
+        for p in &mut self.profiles {
+            p.triggers = std::mem::take(&mut p.triggers).checked();
+        }
+        self.schedule = std::mem::take(&mut self.schedule).checked();
         self
     }
 
@@ -366,6 +483,7 @@ pub fn capture(name: String) -> Res<Profile> {
         auto: false,
         screens: display::connected()?,
         exclude: BTreeSet::new(),
+        triggers: Triggers::default(),
     })
 }
 
@@ -541,6 +659,57 @@ mod tests {
     }
 
     #[test]
+    fn schedule_gives_the_brightness_of_the_hour() {
+        let steps = vec![(8 * 60, 80), (22 * 60, 20)];
+        let paliers = Schedule { on: true, smooth: false, steps: steps.clone() };
+        assert_eq!(paliers.target(7 * 60), Some(20)); // avant la première étape : celle de la veille
+        assert_eq!(paliers.target(8 * 60), Some(80));
+        assert_eq!(paliers.target(21 * 60 + 59), Some(80));
+        assert_eq!(paliers.target(23 * 60), Some(20));
+        let doux = Schedule { smooth: true, ..paliers };
+        assert_eq!(doux.target(8 * 60), Some(80));
+        assert_eq!(doux.target(15 * 60), Some(50)); // à mi-chemin entre 8 h et 22 h
+        assert_eq!(doux.target(22 * 60), Some(20));
+        assert_eq!(doux.target(3 * 60), Some(50)); // à mi-chemin par minuit, de 22 h à 8 h
+        assert_eq!(Schedule::default().target(600), None);
+        assert_eq!(Schedule { steps: vec![(600, 40)], ..Schedule::default() }.target(0), Some(40));
+    }
+
+    #[test]
+    fn schedule_steps_are_checked() {
+        let s = Schedule { on: true, smooth: true, steps: vec![(1300, 250), (60, 10), (60, 90), (2000, 5)] }.checked();
+        assert_eq!(s.steps, [(60, 10), (1300, 100)]);
+        let many = Schedule { steps: (0..30).map(|i| (i * 10, 50)).collect(), ..Schedule::default() }.checked();
+        assert_eq!(many.steps.len(), Schedule::MAX_STEPS);
+    }
+
+    #[test]
+    fn triggers_are_checked_and_read_leniently() {
+        let t = Triggers { at: Some(1500), power: Some(PowerSource::Ac), exe: r" C:\Jeux\Jeu.EXE ".into() }.checked();
+        assert_eq!((t.at, t.power, t.exe.as_str()), (None, Some(PowerSource::Ac), "Jeu.EXE"));
+        assert_eq!(Triggers { exe: "bloc-notes".into(), ..Default::default() }.checked().exe, "bloc-notes.exe");
+        assert_eq!(Triggers::default().checked(), Triggers::default());
+        // Valeurs inconnues dans le fichier : le déclencheur est ignoré, pas le fichier.
+        let p: Profile = serde_json::from_str(
+            r#"{"id":"1","name":"x","sig":"","tiles":[],"snap":{"paths":[],"modes":[],"adapters":{}},"triggers":{"at":"midi","power":"solaire","exe":"a.exe"}}"#,
+        )
+        .unwrap();
+        assert_eq!(p.triggers, Triggers { at: None, power: None, exe: "a.exe".into() });
+        let p: Triggers = serde_json::from_str(r#"{"at":480,"power":"dc"}"#).unwrap();
+        assert_eq!((p.at, p.power), (Some(480), Some(PowerSource::Dc)));
+    }
+
+    #[test]
+    fn input_pairs_are_checked() {
+        let caps = BTreeMap::from([(0x60, vec![0x0F, 0x11])]);
+        let s = Screen { inputs: Some((0x0F, 0x11)), ..Default::default() };
+        assert_eq!(s.checked(caps.clone()).unwrap().inputs, Some((0x0F, 0x11)));
+        assert!(Screen { inputs: Some((0x0F, 0x0F)), ..Default::default() }.checked(caps.clone()).is_err());
+        assert!(Screen { inputs: Some((0x0F, 0x03)), ..Default::default() }.checked(caps).is_err());
+        assert_eq!(Screen { inputs: Some((3, 3)), ..Default::default() }.repaired().inputs, None);
+    }
+
+    #[test]
     fn old_configs_get_default_settings() {
         let s: Store = serde_json::from_str(r#"{"profiles":[]}"#).unwrap();
         assert!(s.confirm.on);
@@ -551,5 +720,6 @@ mod tests {
         let s: Store = serde_json::from_str(r#"{"screens":{"a":{"hidden":true,"features":[{"code":18}]}}}"#).unwrap();
         let a = &s.screens["a"];
         assert!(a.hidden && a.range == Range::FULL && a.features[0].stop == 100);
+        assert_eq!((a.inputs, &a.input_hotkey, &s.schedule), (None, &None, &Schedule::default()));
     }
 }

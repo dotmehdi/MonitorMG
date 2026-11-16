@@ -39,8 +39,8 @@ The screenshots are taken from the development preview (`dev/serve.js`), with si
 
 | Edition | Who it's for | How |
 | --- | --- | --- |
-| Installer `MonitorMG-2.1.0-setup.exe` | Most users | Double-click it. No administrator rights are requested; MonitorMG installs for your account and appears in the Start menu. |
-| Portable `MonitorMG-2.1.0-portable.zip` | USB stick, machine without installation | Unzip into a personal folder and run `MonitorMG.exe`. Profiles and the log stay in the `data` folder next to it. |
+| Installer `MonitorMG-2.2.0-setup.exe` | Most users | Double-click it. No administrator rights are requested; MonitorMG installs for your account and appears in the Start menu. |
+| Portable `MonitorMG-2.2.0-portable.zip` | USB stick, machine without installation | Unzip into a personal folder and run `MonitorMG.exe`. Profiles and the log stay in the `data` folder next to it. |
 
 Prerequisite: Microsoft Edge WebView2, already present on Windows 11. The installer adds it if needed; for the portable edition, [download it here](https://go.microsoft.com/fwlink/p/?LinkId=2124703).
 
@@ -51,13 +51,19 @@ The `SHA256SUMS.txt` file published with each release lets you check that the do
 | Where | What |
 | --- | --- |
 | Layout | Drag a display to move it: it snaps like in Windows. With the keyboard, select it and use the arrow keys. |
-| Profiles | Click a profile to apply it; right-click or `⋯` to rename it, give it a keyboard shortcut, create its desktop shortcut, apply it when its displays are connected (ideal with a dock) or choose which settings it applies: scaling, HDR and brightness can be left as they are. |
-| DDC/CI | For each display: its name and presence in the panel, its brightness range (to harmonize displays that don't light up the same), the brightness VCP code, DDC/CI blocking. Then the controls announced by the display, to show in the panel: a slider for continuous settings (contrast, volume, gains…), choices for the others (input, color preset, mute), an on/off button. A continuous setting can follow brightness. A code missing from the list can be added by hand. Finally, the behavior of "Turn displays off": Windows sleep, DDC/CI signal, or both. |
+| Profiles | Click a profile to apply it; right-click or `⋯` to rename it, give it a keyboard shortcut, create its desktop shortcut, apply it when its displays are connected (ideal with a dock), give it triggers (every day at a set time, when plugged in or on battery, when a program starts) or choose which settings it applies: scaling, HDR and brightness can be left as they are. |
+| DDC/CI | For each display: its name and presence in the panel, its brightness range (to harmonize displays that don't light up the same), the brightness VCP code, DDC/CI blocking. Then the controls announced by the display, to show in the panel: a slider for continuous settings (contrast, volume, gains…), choices for the others (input, color preset, mute), an on/off button. A continuous setting can follow brightness. A code missing from the list can be added by hand. For a display connected to two machines, input switching by shortcut: two inputs and a key combination replace a KVM switch. Finally, the behavior of "Turn displays off": Windows sleep, DDC/CI signal, or both. |
 | Activity | The history of every change, wherever it came from (window, menu, shortcut, connection), with **Undo**. |
-| Settings | Start with Windows, system tray icon (five to choose from), change confirmation and its delay, shortcuts to turn displays off and to raise or lower brightness plus the brightness step, the list of shortcuts, the data folder. |
+| Settings | Start with Windows, system tray icon (five to choose from), brightness by time of day (timed steps, with a smooth transition or at once), change confirmation and its delay, shortcuts to turn displays off and to raise or lower brightness plus the brightness step, the list of shortcuts, the data folder. |
 | System tray | Left click: the panel. Each display's brightness (mouse wheel on a slider), a single slider for all of them if you prefer, the DDC/CI controls you chose, an on/off button, profiles, turning displays off. Double click: the window. Right click: profiles, undo, and for each display its brightness (in steps, or the panel for fine adjustment), resolution, refresh rate, enabling and main display; projection, identification, turning displays off. |
 
 A risky change (resolution, refresh rate, orientation, enabling, projection) asks for confirmation: without an answer, the previous display settings come back after 15 s. The delay, from 5 to 60 s, is set in Settings.
+
+### Automations
+
+- **Brightness by time of day** (Settings): add steps, for example 70% at 7:30 AM and 25% at 10:30 PM. All adjustable displays follow them every day, each within its own range; with the smooth transition, brightness glides from one step to the next minute by minute. A manual adjustment stays in place until the next step. DDC/CI controls that follow brightness (color temperature, contrast…) follow the time of day too: a way to warm the picture in the evening, inside the display itself.
+- **Profile triggers** (profile menu, "Triggers…"): the profile applies on its own every day at the chosen time, when the PC is plugged in or goes on battery, or when a program starts (its name, like `game.exe`). Each application is recorded in Activity and can be undone like any other. Nothing happens when the program closes, and a time that passed while the PC was asleep is not caught up.
+- **Input switching** (DDC/CI view): pick two inputs of the display and a shortcut. It goes from one to the other, wherever you are in Windows. With MonitorMG on both machines, each one takes the display back with a key combination.
 
 ### Keyboard shortcuts
 
@@ -66,6 +72,7 @@ A risky change (resolution, refresh rate, orientation, enabling, projection) ask
 | One of your choice | Apply a profile, anywhere in Windows |
 | One of your choice | Turn displays off, anywhere in Windows; a key press or the mouse turns them back on |
 | Ones of your choice | Raise or lower the brightness of all displays |
+| One of your choice | Switch a display's input between two sources, anywhere in Windows |
 | `Ctrl+S` | Save the current setup as a profile |
 | `Ctrl+Z` | Undo the last change |
 | `Ctrl+I` | Identify the displays |
@@ -93,6 +100,7 @@ MonitorMG runs entirely on your computer. It never connects to the Internet, col
 - **An action doesn't do what you expected**: the Activity view shows what happened and why. The full log is in `logs\activite.jsonl`, under the data folder (Settings, "Open folder"). Attach it to your report.
 - **Black screen after a change**: wait for the delay to run out, the previous display settings come back on their own. Otherwise, `Ctrl+Z` in the window or "Undo" in the tray menu.
 - **A display doesn't appear in the panel, or the DDC/CI view says "Controls unreadable"**: enable DDC/CI in the display's on-screen menu. Some adapters and cables (optical HDMI, cheap docking stations) don't pass it through. If the brightness slider changes nothing, try another brightness code in the DDC/CI view.
+- **Brightness changes on its own**: brightness by time of day is on (Settings). The Activity view shows each applied step, with the source "Schedule".
 - **The PC slows down when the panel opens**: block DDC/CI for the offending display in the DDC/CI view.
 - **A display turned off over DDC/CI doesn't turn back on from MonitorMG**: some displays disappear from Windows once turned off. Turn it back on with its button, or choose the "Standby" signal in the DDC/CI view.
 - **Two displays of the same model** (a dock with two identical displays): MonitorMG appends their number to their name, "HP E24 (1)" and "HP E24 (2)". The DDC/CI view lets you give them a more telling name.

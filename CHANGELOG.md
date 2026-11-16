@@ -1,5 +1,32 @@
 # Journal des modifications
 
+## 2.2.0
+
+Trois automatismes : la luminosité suit l'heure, les profils se déclenchent seuls, et un raccourci bascule l'entrée d'un écran.
+
+### Luminosité selon l'heure
+
+- Paramètres, « Luminosité selon l'heure » : jusqu'à 12 étapes (une heure, une luminosité) que tous les écrans réglables suivent chaque jour, chacun dans sa plage.
+- Transition douce, minute après minute, d'une étape à la suivante ; ou paliers, d'un coup à chaque étape.
+- Un réglage manuel reste en place jusqu'à l'étape suivante. Les réglages DDC/CI qui suivent la luminosité (contraste, température de couleur…) suivent aussi l'heure.
+- La luminosité prévue est appliquée au démarrage et à la sortie de veille.
+
+### Déclencheurs de profils
+
+- Menu d'un profil, « Déclencheurs… » : chaque jour à heure fixe, au passage sur secteur ou sur batterie, au lancement d'un programme.
+- Comme l'application au branchement : consignés dans l'activité (sources Planification, Alimentation, Programme), annulables, sans boîte de dialogue.
+- Une horloge sur le profil rappelle ses déclencheurs.
+
+### Bascule d'entrée par raccourci
+
+- Vue DDC/CI : deux entrées de l'écran et une combinaison de touches. Le raccourci passe de l'une à l'autre, partout dans Windows : un écran partagé par deux machines sans boîtier KVM.
+- L'entrée affichée est lue sur l'écran ; illisible, le raccourci va vers la première entrée.
+
+### Technique
+
+- Nouveau module `auto.rs` : un thread réveillé chaque minute, à la sortie de veille et aux changements d'alimentation ; la liste des processus n'est lue (toutes les 5 s) que si un profil attend un programme.
+- 27 tests Rust, 5 tests de l'interface.
+
 ## 2.1.0
 
 Corrections issues de l'audit du code (`docs/AUDIT-2.md`).
