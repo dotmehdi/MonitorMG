@@ -1,7 +1,7 @@
-# Manifeste winget (version) pour MonitorMG 2.1.0 — voir docs/SIGNATURE.md.
+# Manifeste winget (version) pour MonitorMG 2.2.1 — voir docs/SIGNATURE.md.
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.6.0.schema.json
 PackageIdentifier: dotmehdi.MonitorMG
-PackageVersion: 2.1.0
+PackageVersion: 2.2.1
 DefaultLocale: en-US
 ManifestType: version
 ManifestVersion: 1.6.0
