@@ -94,7 +94,7 @@ node scripts/release.mjs       # installateur, édition portable et SHA256SUMS.t
 2. `cargo test`, `cargo clippy --all-targets`, `cargo audit`, `npm run test:ui` (l'intégration continue les lance aussi à chaque envoi).
 3. `node scripts/release.mjs`, puis tester l'installateur sur une session propre : installation, lancement avec Windows, mise à jour par-dessus la version précédente, désinstallation.
 4. Pousser le tag `vX.Y.Z`, ou, sans terminal, lancer le workflow `release` depuis l'onglet Actions sur `main` avec la case « release » cochée : il pose lui-même le tag de la version. Le workflow construit `dist/` sur un runner Windows, fait signer les exécutables si la signature est configurée ([SIGNATURE.md](SIGNATURE.md)), et crée la release en brouillon avec les trois fichiers et ses notes, tirées de `CHANGELOG.md` depuis cette version jusqu'à la dernière publiée. Lancé sans la case, il ne produit qu'un build de test, en artefact.
-5. Relire le brouillon et publier. (Sans CI : `node scripts/release.mjs` et publier les trois fichiers de `dist/` à la main.)
+5. Relire le brouillon et publier : depuis la page de la release, ou depuis l'onglet Actions avec le workflow `publish` (son tag, par exemple `v2.2.1`). (Sans CI : `node scripts/release.mjs` et publier les trois fichiers de `dist/` à la main.)
 
 ### Signature
 
