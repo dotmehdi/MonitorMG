@@ -1,13 +1,20 @@
 # Release : construit l'installateur et l'édition portable sur un runner Windows, fait
 # signer les exécutables par SignPath quand le dépôt est configuré (voir docs/SIGNATURE.md),
-# puis attache le tout, avec SHA256SUMS.txt, à une release GitHub créée en brouillon.
-# Déclenchement : un tag vX.Y.Z, ou à la main (workflow_dispatch, sans release).
+# puis attache le tout, avec SHA256SUMS.txt, à une release GitHub créée en brouillon, ses
+# notes tirées de CHANGELOG.md.
+# Déclenchement : un tag vX.Y.Z, ou à la main depuis l'onglet Actions (workflow_dispatch) :
+# un build de test, ou, case « release » cochée sur main, le tag de la version et sa release.
 name: release
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      release:
+        description: "Poser le tag vX.Y.Z de la version et créer sa release en brouillon (depuis main)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write # créer la release en brouillon
@@ -28,6 +35,17 @@ jobs:
         run: |
           $v = (Get-Content tauri.conf.json -Raw | ConvertFrom-Json).version
           if ("v$v" -ne "${{ github.ref_name }}") { throw "le tag ${{ github.ref_name }} ne correspond pas à la version $v de tauri.conf.json" }
+
+      # Lancé à la main : le tag n'existe pas encore, il sera posé après la construction.
+      - name: Vérifier la demande de release
+        if: github.event_name == 'workflow_dispatch' && inputs.release
+        shell: pwsh
+        run: |
+          if ("${{ github.ref }}" -ne "refs/heads/main") { throw "une release se crée depuis main, pas depuis ${{ github.ref_name }}" }
+          $v = (Get-Content tauri.conf.json -Raw | ConvertFrom-Json).version
+          git ls-remote --exit-code --tags origin "refs/tags/v$v" | Out-Null
+          if ($LASTEXITCODE -eq 0) { throw "le tag v$v existe déjà : changez la version dans tauri.conf.json et Cargo.toml" }
+          exit 0
 
       - name: Construire (non signé)
         run: node scripts/release.mjs --build
@@ -82,16 +100,42 @@ jobs:
           name: dist
           path: dist/
 
+      # Posé avec le jeton du workflow : ce tag ne relance pas le workflow.
+      - name: Poser le tag de la version
+        if: github.event_name == 'workflow_dispatch' && inputs.release
+        shell: pwsh
+        run: |
+          $v = (Get-Content tauri.conf.json -Raw | ConvertFrom-Json).version
+          git tag "v$v" "$env:GITHUB_SHA"
+          git push origin "v$v"
+
       - name: Créer la release en brouillon
-        if: github.ref_type == 'tag'
+        if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.release)
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $v = (Get-Content tauri.conf.json -Raw | ConvertFrom-Json).version
-          $notes = "Voir [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md)."
+          # Notes : CHANGELOG.md depuis cette version jusqu'à la dernière publiée, versions
+          # restées sans release comprises.
+          $log = (Get-Content CHANGELOG.md -Raw -Encoding utf8) -replace "`r`n", "`n"
+          $prev = gh release view --json tagName --jq .tagName 2>$null
+          $prev = if ($LASTEXITCODE -eq 0 -and $prev) { "$prev".TrimStart('v') } else { "" }
+          $notes = ""
+          $m = [regex]::Match($log, "(?m)^## $([regex]::Escape($v))[ \t]*$")
+          if ($m.Success) {
+            $body = $log.Substring($m.Index + $m.Length)
+            $end = if ($prev) { [regex]::Match($body, "(?m)^## $([regex]::Escape($prev))[ \t]*$") } else { [regex]::Match($body, "(?m)^## ") }
+            if (-not $end.Success) { $end = [regex]::Match($body, "(?m)^## ") }
+            if ($end.Success) { $body = $body.Substring(0, $end.Index) }
+            $notes = $body.Trim()
+          }
+          if (-not $notes) { $notes = "Voir [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md)." }
           if ("${{ vars.SIGNPATH_ORGANIZATION_ID }}" -ne "") {
             # Mention exigée par les conditions de SignPath Foundation.
             $notes += "`n`nFree code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org)."
           }
-          gh release create "${{ github.ref_name }}" --draft --title "MonitorMG $v" --notes $notes (Get-ChildItem dist -File | ForEach-Object FullName)
+          # Par un fichier : passées en argument, les guillemets des notes seraient abîmés.
+          $file = Join-Path $env:RUNNER_TEMP "notes.md"
+          [IO.File]::WriteAllText($file, $notes)
+          gh release create "v$v" --verify-tag --draft --title "MonitorMG $v" --notes-file $file (Get-ChildItem dist -File | ForEach-Object FullName)
