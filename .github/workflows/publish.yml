@@ -1,0 +1,32 @@
+# Publie une release restée en brouillon, depuis l'onglet Actions (navigateur ou téléphone) :
+# le dernier geste de docs/DEVELOPPEMENT.md, « Publier une version », sans ouvrir la release.
+name: publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag de la release en brouillon à publier (vX.Y.Z)"
+        required: true
+
+permissions:
+  contents: write # publier la release
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publier le brouillon
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # Passé par l'environnement, jamais recopié dans le script.
+          TAG: ${{ inputs.tag }}
+        run: |
+          case "$TAG" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "Tag invalide : « $TAG » (attendu : vX.Y.Z)"; exit 1 ;;
+          esac
+          draft=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
+          if [ "$draft" != "true" ]; then echo "Aucune release en brouillon pour $TAG"; exit 1; fi
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          echo "Publiée : https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
