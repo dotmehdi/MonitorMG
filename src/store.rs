@@ -163,6 +163,10 @@ pub struct Screen {
     /// Raccourci global de bascule d'entrée ; attribué par `assign_hotkey`, jamais par
     /// l'enregistrement des préférences.
     pub input_hotkey: Option<String>,
+    /// Modèle de l'écran (identifiant PnP de son EDID) : ses préférences le suivent si
+    /// Windows change l'identifiant de son connecteur (`rekey.rs`).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub model: String,
 }
 
 impl Default for Screen {
@@ -177,6 +181,7 @@ impl Default for Screen {
             caps: BTreeMap::new(),
             inputs: None,
             input_hotkey: None,
+            model: String::new(),
         }
     }
 }

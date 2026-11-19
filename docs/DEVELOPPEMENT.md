@@ -15,6 +15,7 @@ Rust + [Tauri 2](https://tauri.app). L'interface est en HTML, CSS et JavaScript,
 | `src/auto.rs` | Automatismes : luminosité selon l'heure (`Schedule`), profils à heure fixe, au changement d'alimentation et au lancement d'un programme (`Triggers`). |
 | `src/dim.rs` | Luminosité logicielle : voiles sombres (fenêtres en couches, traversées par les clics) posés par le thread de surveillance sur les écrans sans luminosité matérielle. |
 | `src/placement.rs` | Place des fenêtres d'un profil : relevé (`EnumWindows`, `GetWindowPlacement`), association aux fenêtres ouvertes (`pair`), remise en place. |
+| `src/rekey.rs` | Écrans renumérotés par Windows (pilote réinstallé ou mis à jour, écran rebranché ailleurs) : profils et préférences DDC/CI rattachés à l'écran branché du même modèle, sur le même adaptateur (`matches`, `run`). |
 | `src/cli.rs` | Ligne de commande : `--profile`, `--brightness`, `--input`, `--off`, `--json`, dans l'application en marche ou seule. |
 | `src/update.rs` | Vérification des mises à jour sur option : une requête WinHTTP à l'API des releases de GitHub. |
 | `src/store.rs` | Profils et réglages (`config.json`, réparés à la lecture), préférences DDC/CI par écran (`Screen`, `Feature`) et du panneau (`Panel`, `OffMode`, `PowerSignal`), mode portable, raccourcis bureau, couleur d'accent. |
@@ -28,6 +29,8 @@ Rust + [Tauri 2](https://tauri.app). L'interface est en HTML, CSS et JavaScript,
 ### Profils
 
 Un profil stocke la configuration CCD brute, sérialisée en hexadécimal. Les LUID d'adaptateur changent à chaque démarrage : on mémorise le chemin de chaque adaptateur pour les retrouver. Si un écran manque, le reste est appliqué ; si Windows refuse la configuration exacte, on lui laisse choisir les timings, puis la seule topologie.
+
+Un écran est désigné par sa clé : chemin de l'adaptateur et identifiant du connecteur (`targetInfo.id`). Windows peut renuméroter ces connecteurs, après une réinstallation ou une mise à jour du pilote graphique par exemple (constaté : 271 et 272 devenus 273 et 274). Chaque profil mémorise donc aussi le modèle de ses écrans (identifiant PnP de l'EDID, « GBT3214 »), et les préférences DDC/CI celui de leur écran. Au démarrage, à chaque branchement et avant d'appliquer un profil, `rekey.rs` rattache chaque clé qui ne désigne plus le bon écran à l'écran branché du même modèle, sur le même adaptateur, et réécrit profils et préférences. Pour un profil enregistré avant la 2.2.2, sans modèle, l'écran est reconnu au nom de la tuile placée à sa position. Deux écrans jumeaux sont appariés dans l'ordre de leurs connecteurs, et seulement s'ils sont branchés tous les deux. Un écran dont on ne sait rien n'est jamais rattaché.
 
 ### DDC/CI
 

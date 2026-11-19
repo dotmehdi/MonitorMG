@@ -1,5 +1,26 @@
 # Journal des modifications
 
+## 2.2.2
+
+Correction : profils et réglages DDC/CI perdus quand Windows renumérote les connecteurs des écrans.
+
+### Profils
+
+- Après une réinstallation ou une mise à jour du pilote graphique, ou un écran rebranché sur un autre port, Windows peut changer l'identifiant de connecteur d'un écran (constaté : 271 et 272 devenus 273 et 274). Les profils enregistrés désignaient encore les anciens : « Aucun écran de ce profil n'est branché », alors que les écrans l'étaient.
+- MonitorMG rattache désormais chaque écran d'un profil à l'écran branché du même modèle, sur le même adaptateur : au démarrage, à chaque branchement et avant d'appliquer un profil, application au branchement comprise. Le profil est réécrit avec les nouveaux identifiants et l'activité le signale.
+- Les profils mémorisent le modèle de leurs écrans (identifiant tiré de l'EDID). Ceux enregistrés avant cette version sont reconnus au nom de leurs écrans.
+- Deux écrans du même modèle sont appariés dans l'ordre de leurs connecteurs, et seulement s'ils sont branchés tous les deux ; un écran qu'aucune information ne permet de reconnaître n'est jamais rattaché.
+
+### Réglages DDC/CI
+
+- Même cause : les préférences d'un écran (plage de luminosité, code de luminosité, réglages liés, entrées et raccourci de bascule, nom, écran bloqué) ne s'appliquaient plus. Elles suivent désormais leur écran, et le raccourci de bascule d'entrée est réenregistré.
+- Des réglages déjà faits sous le nouvel identifiant ne sont jamais écrasés ; des préférences vides, avec seulement les capacités lues sur l'écran, sont remplacées.
+
+### Technique
+
+- Nouveau module `rekey.rs` ; `display::seen`, `display::placed`, `display::rekey`.
+- 45 tests Rust, 5 tests de l'interface.
+
 ## 2.2.1
 
 Quatre compléments à la 2.2.0, jamais publiée seule : cette version la contient.

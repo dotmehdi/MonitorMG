@@ -15,6 +15,7 @@ mod display;
 mod journal;
 mod hotkeys;
 mod placement;
+mod rekey;
 mod store;
 mod tray;
 mod update;
@@ -375,10 +376,11 @@ async fn ddc_power(app: AppHandle, key: String, on: Option<bool>) -> Res<u32> {
 #[tauri::command]
 async fn set_screen(app: AppHandle, key: String, screen: store::Screen) -> Res<store::Screen> {
     let kept = save_with(&app, |s| {
-        let (caps, input_hotkey) = s.screens.get(&key).map(|x| (x.caps.clone(), x.input_hotkey.clone())).unwrap_or_default();
+        let (caps, input_hotkey, model) = s.screens.get(&key).map(|x| (x.caps.clone(), x.input_hotkey.clone(), x.model.clone())).unwrap_or_default();
         // Le raccourci de bascule d'entrée passe par `input_hotkey`, qui l'enregistre auprès de Windows.
-        let screen = store::Screen { input_hotkey, ..screen }.checked(caps)?;
-        if screen == store::Screen::default() {
+        let screen = store::Screen { input_hotkey, model, ..screen }.checked(caps)?;
+        // Le modèle noté ne compte pas : sans autre réglage, les préférences disparaissent.
+        if (store::Screen { model: String::new(), ..screen.clone() }) == store::Screen::default() {
             s.screens.remove(&key);
         } else {
             s.screens.insert(key, screen.clone());
@@ -730,6 +732,50 @@ fn retune(app: &AppHandle) {
     display::tune(store(app).screens.iter().map(|(k, s)| (k.clone(), s.tune())).collect());
 }
 
+/// Rattache profils et préférences DDC/CI aux écrans dont Windows a changé l'identifiant
+/// de connecteur (`rekey.rs`), l'enregistre et le consigne.
+fn follow_screens(app: &AppHandle) {
+    let Ok(seen) = display::seen() else { return };
+    let (moved, saved) = {
+        let mut s = store(app);
+        let moved = rekey::run(&mut s, &seen);
+        let saved = if moved.any() { s.save() } else { Ok(()) };
+        (moved, saved)
+    };
+    if !moved.keys.is_empty() {
+        note(app, Level::Ok, Src::System, &rekey_text(&moved, &seen));
+    }
+    if let Err(e) = saved {
+        note(app, Level::Error, Src::System, &e);
+    }
+    if moved.screens {
+        retune(app);
+        register_hotkeys(app);
+    }
+}
+
+/// Même rattachement, MonitorMG fermé : raccourci bureau ou ligne de commande.
+fn follow_screens_alone(s: &mut store::Store, src: &str) {
+    let Ok(seen) = display::seen() else { return };
+    let moved = rekey::run(s, &seen);
+    if moved.any() {
+        if let Err(e) = s.save() {
+            journal::write(Level::Error, src, &e);
+        }
+    }
+    if !moved.keys.is_empty() {
+        journal::write(Level::Ok, src, &rekey_text(&moved, &seen));
+    }
+}
+
+fn rekey_text(moved: &rekey::Moved, seen: &[display::Seen]) -> String {
+    let names = rekey::describe(moved, seen);
+    tr!(
+        "Windows a changé l'identifiant de connecteur de {names} : profils et réglages DDC/CI rattachés",
+        "Windows changed the connector ID of {names}: profiles and DDC/CI settings reattached"
+    )
+}
+
 fn feature_range(sc: &store::Screen, code: u8) -> display::Range {
     sc.features.iter().find(|f| f.code == code).map_or(display::Range::FULL, |f| f.range)
 }
@@ -848,6 +894,8 @@ fn from_menu(app: &AppHandle, what: &str, risky: bool, f: impl FnOnce() -> Res<(
 }
 
 fn apply_profile(app: &AppHandle, src: Src, id: &str) -> Res<String> {
+    // Écrans renumérotés par Windows depuis le dernier branchement : rattachés d'abord.
+    follow_screens(app);
     let p = store(app).get_mut(id)?.clone();
     let extras = p.extras();
     let windows = p.placed_windows().to_vec();
@@ -1016,7 +1064,8 @@ fn second_instance(app: &AppHandle, args: Vec<String>) {
 /// Raccourci bureau quand MonitorMG ne tourne pas : applique le profil puis quitte.
 fn apply_from_desktop(id: &str) {
     let desk = Src::Desktop.label();
-    let s = store::Store::load();
+    let mut s = store::Store::load();
+    follow_screens_alone(&mut s, desk);
     // Préférences DDC/CI comprises : écran bloqué, plage et code de la luminosité.
     display::tune(s.screens.iter().map(|(k, sc)| (k.clone(), sc.tune())).collect());
     let Some(p) = s.profiles.iter().find(|p| p.id == id || p.name == id) else {
@@ -1144,6 +1193,7 @@ fn main() {
         .setup(move |app| {
             let h = app.handle().clone();
             log_startup();
+            follow_screens(&h);
             TrayIconBuilder::with_id("tray")
                 .icon(tray_icon(&h))
                 .tooltip("MonitorMG")
