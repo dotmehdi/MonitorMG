@@ -149,6 +149,10 @@ pub struct Snapshot {
     /// Niveau réel de chaque écran (%), indépendant de la plage réglée ensuite.
     #[serde(default)]
     pub brightness: BTreeMap<String, u32>,
+    /// Modèle de chaque écran branché (identifiant PnP de son EDID, « GBT3214 ») : il le
+    /// retrouve quand Windows change l'identifiant de son connecteur (`rekey.rs`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub models: BTreeMap<String, String>,
 }
 
 /// Réglages appliqués après la disposition. Un profil peut en exclure certains :
@@ -566,6 +570,33 @@ pub fn monitors() -> Res<Vec<Monitor>> {
         out.push(m);
     }
     Ok(out)
+}
+
+/// Écran branché, actif ou non : sa clé, son modèle et son nom.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Seen {
+    pub key: String,
+    /// Identifiant PnP tiré de l'EDID (« GBT3214 ») ; vide s'il est illisible.
+    pub model: String,
+    pub name: String,
+}
+
+pub fn seen() -> Res<Vec<Seen>> {
+    let cfg = query(true)?;
+    let mut keys = Keys::default();
+    Ok(screens(&cfg)
+        .into_iter()
+        .map(|p| Seen { key: keys.of(p), model: model(&p.targetInfo), name: friendly(&p.targetInfo) })
+        .collect())
+}
+
+fn model(t: &DISPLAYCONFIG_PATH_TARGET_INFO) -> String {
+    info::<DISPLAYCONFIG_TARGET_DEVICE_NAME>(GET_TARGET_NAME, t.adapterId, t.id).map_or_else(String::new, |n| model_of(&wstr(&n.monitorDevicePath)))
+}
+
+/// `\\?\DISPLAY#GBT3214#5&9d93ce2&1&UID274#{…}` → `GBT3214`.
+fn model_of(path: &str) -> String {
+    path.split('#').nth(1).unwrap_or_default().to_uppercase()
 }
 
 fn friendly(t: &DISPLAYCONFIG_PATH_TARGET_INFO) -> String {
@@ -1457,7 +1488,62 @@ pub fn capture() -> Res<Snapshot> {
             s.brightness.insert(k.clone(), tuning(&k).range.to_hw(b));
         }
     }
+    // Écrans actifs ou non : la clé de chacun se retrouve par son modèle.
+    s.models = seen()?.into_iter().filter(|x| !x.model.is_empty()).map(|x| (x.key, x.model)).collect();
     Ok(s)
+}
+
+/// Clé de l'écran visé par un chemin enregistré : chemin de l'adaptateur mémorisé
+/// (ou, à défaut, son LUID d'alors, comme `Keys::adapter`) et identifiant du connecteur.
+fn saved_key(adapters: &BTreeMap<String, String>, t: &DISPLAYCONFIG_PATH_TARGET_INFO) -> String {
+    let l = luid_hex(t.adapterId);
+    format!("{}#{}", adapters.get(&l).unwrap_or(&l), t.id)
+}
+
+fn saved_config(s: &Snapshot) -> Option<Config> {
+    Some(Config {
+        paths: s.paths.iter().map(|h| unhex(h)).collect::<Option<_>>()?,
+        modes: s.modes.iter().map(|h| unhex(h)).collect::<Option<_>>()?,
+    })
+}
+
+/// Écrans d'un profil : clé et coin haut gauche de chacun, dans l'ordre des chemins.
+pub fn placed(s: &Snapshot) -> Vec<(String, Option<(i32, i32)>)> {
+    let Some(cfg) = saved_config(s) else { return Vec::new() };
+    cfg.paths
+        .iter()
+        .map(|p| (saved_key(&s.adapters, &p.targetInfo), source_mode(&cfg, p).map(|m| (m.position.x, m.position.y))))
+        .collect()
+}
+
+/// Nouvelle clé de chaque écran du profil dont Windows a changé l'identifiant de
+/// connecteur. Seul cet identifiant change : l'adaptateur et la source restent ceux
+/// enregistrés, et le mode de la cible suit son connecteur.
+pub fn rekey(s: &mut Snapshot, map: &BTreeMap<String, String>) {
+    let Some(mut cfg) = saved_config(s) else { return };
+    for p in cfg.paths.iter_mut() {
+        let old = saved_key(&s.adapters, &p.targetInfo);
+        let Some((base, id)) = map.get(&old).and_then(|k| k.rsplit_once('#')) else { continue };
+        let Ok(id) = id.parse::<u32>() else { continue };
+        if old.rsplit_once('#').map(|(b, _)| b) != Some(base) {
+            continue;
+        }
+        p.targetInfo.id = id;
+        if let Some(m) = cfg.modes.get_mut(tgt_idx(p) as usize).filter(|m| m.infoType == DISPLAYCONFIG_MODE_INFO_TYPE_TARGET) {
+            m.id = id;
+        }
+    }
+    s.paths = cfg.paths.iter().map(hex).collect();
+    s.modes = cfg.modes.iter().map(hex).collect();
+    s.scales = renamed(std::mem::take(&mut s.scales), map);
+    s.hdr = renamed(std::mem::take(&mut s.hdr), map);
+    s.brightness = renamed(std::mem::take(&mut s.brightness), map);
+    s.models = renamed(std::mem::take(&mut s.models), map);
+}
+
+/// Renomme les clés d'une table ; les clés absentes de `map` restent.
+pub fn renamed<V>(m: BTreeMap<String, V>, map: &BTreeMap<String, String>) -> BTreeMap<String, V> {
+    m.into_iter().map(|(k, v)| (map.get(&k).cloned().unwrap_or(k), v)).collect()
 }
 
 /// Reconstruit la config d'un profil avec les LUID du démarrage en cours.
@@ -1635,6 +1721,13 @@ mod tests {
         let path = r"\\?\DISPLAY#GBT3214#5&9d93ce2&1&UID272#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}";
         assert!(r"DISPLAY\GBT3214\5&9d93ce2&1&UID272_0".to_uppercase().starts_with(&wmi_instance(path)));
         assert!(!r"DISPLAY\GBT3214\5&9d93ce2&1&UID2720_0".to_uppercase().starts_with(&wmi_instance(path)));
+    }
+
+    #[test]
+    fn models_come_from_the_device_path() {
+        assert_eq!(model_of(r"\\?\DISPLAY#GBT3214#5&9d93ce2&1&UID274#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}"), "GBT3214");
+        assert_eq!(model_of(r"\\?\display#bnq7950#5&9d93ce2&1&UID273#{e6f07b5f}"), "BNQ7950");
+        assert_eq!(model_of(""), "");
     }
 
     #[test]

@@ -143,9 +143,10 @@ pub(crate) fn alone(cmd: Cmd) {
     if let Cmd::Profile(id) = &cmd {
         return apply_from_desktop(id);
     }
-    let s = store::Store::load();
-    display::tune(s.screens.iter().map(|(k, sc)| (k.clone(), sc.tune())).collect());
     let src = Src::Command.label();
+    let mut s = store::Store::load();
+    follow_screens_alone(&mut s, src);
+    display::tune(s.screens.iter().map(|(k, sc)| (k.clone(), sc.tune())).collect());
     let r = match cmd {
         Cmd::Brightness { pct, screen } => {
             display::read_brightness();
