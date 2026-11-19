@@ -35,7 +35,7 @@ const EN = {
   "MonitorMG démarre discrètement dans la zone de notification": "MonitorMG starts quietly in the system tray",
   "Sécurité d'affichage": "Display safety",
   "Confirmer les changements": "Confirm changes",
-  "Résolution, fréquence, orientation, activation et projection": "Resolution, refresh rate, orientation, enabling and projection",
+  "Profils, résolution, fréquence, orientation, activation et projection": "Profiles, resolution, refresh rate, orientation, enabling and projection",
   "Retour automatique après": "Revert automatically after",
   "Sans réponse, l'affichage précédent revient": "Without an answer, the previous display settings come back",
   "Sans confirmation, un mode refusé par l'écran peut le laisser noir. L'annulation reste possible depuis le menu de notification.":
@@ -246,7 +246,7 @@ const EN = {
   "Relire les commandes annoncées par chaque écran": "Read again the controls each display reports",
   Extinction: "Turning off",
   "Bouton du panneau, menu de notification et raccourci clavier": "Panel button, tray menu and keyboard shortcut",
-  "Mise en veille de Windows": "Windows display sleep",
+  "Extinction de Windows": "Windows display off",
   "Signal DDC/CI": "DDC/CI signal",
   "Les deux": "Both",
   "Signal DDC/CI envoyé": "DDC/CI signal sent",
