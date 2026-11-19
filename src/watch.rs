@@ -86,6 +86,8 @@ pub(crate) fn plugged(app: &AppHandle) {
         1 => note(app, Level::Ok, Src::System, t("Un écran a été débranché", "A display was disconnected")),
         n => note(app, Level::Ok, Src::System, &tr!("{n} écrans ont été débranchés", "{n} displays were disconnected")),
     }
+    // Pilote réinstallé, écran rebranché ailleurs : Windows a pu renuméroter les connecteurs.
+    follow_screens(app);
     let found = store(app).profiles.iter().find(|p| p.auto && p.screens == now).map(|p| (p.id.clone(), p.sig.clone()));
     let Some((id, sig)) = found else { return };
     // Windows a souvent déjà rétabli cet affichage : on évite un clignotement.
