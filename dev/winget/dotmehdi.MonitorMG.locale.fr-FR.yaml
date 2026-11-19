@@ -1,7 +1,7 @@
-# Manifeste winget (locale française) pour MonitorMG 2.2.1 — voir docs/SIGNATURE.md.
+# Manifeste winget (locale française) pour MonitorMG 2.2.2 — voir docs/SIGNATURE.md.
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.6.0.schema.json
 PackageIdentifier: dotmehdi.MonitorMG
-PackageVersion: 2.2.1
+PackageVersion: 2.2.2
 PackageLocale: fr-FR
 Publisher: MonitorMG
 PublisherUrl: https://github.com/dotmehdi/MonitorMG
@@ -24,6 +24,6 @@ Tags:
   - luminosité
   - multi-écrans
   - écran
-ReleaseNotesUrl: https://github.com/dotmehdi/MonitorMG/releases/tag/v2.2.1
+ReleaseNotesUrl: https://github.com/dotmehdi/MonitorMG/releases/tag/v2.2.2
 ManifestType: locale
 ManifestVersion: 1.6.0

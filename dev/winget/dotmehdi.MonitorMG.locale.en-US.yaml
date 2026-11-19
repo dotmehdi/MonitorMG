@@ -1,7 +1,7 @@
-# Manifeste winget (locale par défaut) pour MonitorMG 2.2.1 — voir docs/SIGNATURE.md.
+# Manifeste winget (locale par défaut) pour MonitorMG 2.2.2 — voir docs/SIGNATURE.md.
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 PackageIdentifier: dotmehdi.MonitorMG
-PackageVersion: 2.2.1
+PackageVersion: 2.2.2
 PackageLocale: en-US
 Publisher: MonitorMG
 PublisherUrl: https://github.com/dotmehdi/MonitorMG
@@ -26,6 +26,6 @@ Tags:
   - monitor
   - multi-monitor
   - screen
-ReleaseNotesUrl: https://github.com/dotmehdi/MonitorMG/releases/tag/v2.2.1
+ReleaseNotesUrl: https://github.com/dotmehdi/MonitorMG/releases/tag/v2.2.2
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0
