@@ -39,8 +39,8 @@ The screenshots are taken from the development preview (`dev/serve.js`), with si
 
 | Edition | Who it's for | How |
 | --- | --- | --- |
-| Installer `MonitorMG-2.2.2-setup.exe` | Most users | Double-click it. No administrator rights are requested; MonitorMG installs for your account and appears in the Start menu. |
-| Portable `MonitorMG-2.2.2-portable.zip` | USB stick, machine without installation | Unzip into a personal folder and run `MonitorMG.exe`. Profiles and the log stay in the `data` folder next to it. |
+| Installer `MonitorMG-2.2.3-setup.exe` | Most users | Double-click it. No administrator rights are requested; MonitorMG installs for your account and appears in the Start menu. |
+| Portable `MonitorMG-2.2.3-portable.zip` | USB stick, machine without installation | Unzip into a personal folder and run `MonitorMG.exe`. Profiles and the log stay in the `data` folder next to it. |
 
 Prerequisite: Microsoft Edge WebView2, already present on Windows 11. The installer adds it if needed; for the portable edition, [download it here](https://go.microsoft.com/fwlink/p/?LinkId=2124703).
 

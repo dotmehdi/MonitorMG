@@ -1,5 +1,23 @@
 # Journal des modifications
 
+## 2.2.3
+
+Correction : un profil qui laisse les écrans noirs pouvait bloquer l'affichage, même après avoir rebranché les écrans.
+
+### Profils
+
+- Appliquer un profil à la main (fenêtre, panneau, menu, raccourci clavier ou raccourci bureau) passe désormais par la confirmation des changements, comme une résolution ou une fréquence : sans réponse dans le délai, la disposition précédente revient. Les profils appliqués automatiquement (branchement, heure, alimentation, programme) restent sans fenêtre. La confirmation se règle toujours dans les paramètres.
+- Tant que le changement n'est pas confirmé, Windows ne l'enregistre pas. Débrancher puis rebrancher les écrans rend la disposition d'avant, au lieu de réappliquer celle qui ne s'affichait pas (constaté avec une station USB4 : écrans noirs à chaque rebranchement).
+
+### Interface
+
+- Le mode d'extinction « Mise en veille de Windows » s'appelle désormais « Extinction de Windows » : il coupe l'affichage, il ne met pas le PC en veille.
+
+### Technique
+
+- `display::restore` peut appliquer sans enregistrer dans la base d'affichage de Windows ; `display::persist` enregistre la disposition gardée.
+- 46 tests Rust, 5 tests de l'interface.
+
 ## 2.2.2
 
 Correction : profils et réglages DDC/CI perdus quand Windows renumérote les connecteurs des écrans.

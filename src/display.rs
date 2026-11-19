@@ -1603,20 +1603,40 @@ fn strip(cfg: &mut Config, all: bool) {
     compact_modes(cfg);
 }
 
-pub fn restore(s: &Snapshot, x: Extras) -> Res<usize> {
+/// Disposition appliquée sans être enregistrée par Windows, en attente de confirmation.
+static UNSAVED: AtomicBool = AtomicBool::new(false);
+
+/// Enregistre la disposition actuelle dans la base d'affichage de Windows, celle qu'il
+/// réapplique quand les mêmes écrans sont rebranchés, si `restore` ne l'a pas fait.
+pub fn persist() {
+    if UNSAVED.swap(false, Ordering::SeqCst) {
+        let _w = lock(&WRITE);
+        if let Ok(cfg) = query(false) {
+            let _ = apply(&cfg, APPLY);
+        }
+    }
+}
+
+/// Applique un profil. `save` : Windows l'enregistre aussitôt ; sinon il attend `persist`.
+pub fn restore(s: &Snapshot, x: Extras, save: bool) -> Res<usize> {
     let _w = lock(&WRITE);
     forget_modes();
     let (mut cfg, missing) = rebuild(s)?;
+    let flags = match save {
+        true => APPLY,
+        false => SET_DISPLAY_CONFIG_FLAGS(APPLY.0 & !SDC_SAVE_TO_DATABASE.0),
+    };
     // Config exacte, puis timings choisis par Windows, puis topologie seule.
-    apply(&cfg, APPLY)
+    apply(&cfg, flags)
         .or_else(|_| {
             strip(&mut cfg, false);
-            apply(&cfg, APPLY)
+            apply(&cfg, flags)
         })
         .or_else(|_| {
             strip(&mut cfg, true);
-            apply(&cfg, APPLY)
+            apply(&cfg, flags)
         })?;
+    UNSAVED.store(!save, Ordering::SeqCst);
     let now = query(false)?;
     let mut keys = Keys::default();
     for p in &now.paths {

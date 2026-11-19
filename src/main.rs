@@ -89,6 +89,11 @@ impl Src {
             Src::Command => t("Commande", "Command"),
         }
     }
+
+    /// Action demandée par l'utilisateur, qui peut la confirmer ; les automatismes non.
+    fn manual(self) -> bool {
+        !matches!(self, Src::Plug | Src::System | Src::Schedule | Src::Power | Src::Program)
+    }
 }
 
 enum Decision {
@@ -907,7 +912,11 @@ fn apply_profile(app: &AppHandle, src: Src, id: &str) -> Res<String> {
         Src::Program => tr!("Profil « {name} » appliqué au lancement de son programme", "Profile “{name}” applied when its program started"),
         _ => tr!("Profil « {name} » appliqué", "Profile “{name}” applied"),
     };
-    let r = act(app, src, &what, false, || display::restore(&snap, extras).map(missing_text));
+    // Un profil peut laisser les écrans noirs : confirmé comme un changement de mode.
+    // En attendant, Windows ne l'enregistre pas : rebrancher les écrans rend la
+    // disposition d'avant, au lieu de réappliquer celle qui ne s'affiche pas.
+    let guard = src.manual() && store(app).confirm.on;
+    let r = act(app, src, &what, guard, || display::restore(&snap, extras, !guard).map(missing_text));
     if r.is_ok() && !windows.is_empty() {
         let app = app.clone();
         thread::spawn(move || {
@@ -923,7 +932,7 @@ fn undo_last(app: &AppHandle, src: Src) -> Res<()> {
     let Some((snap, what)) = lock(&state_of(app).undo).take() else {
         return Err(t("Rien à annuler", "Nothing to undo").into());
     };
-    act(app, src, &tr!("Annulé : {what}", "Undone: {what}"), false, || display::restore(&snap, display::Extras::UNDO).map(|_| String::new())).map(drop)
+    act(app, src, &tr!("Annulé : {what}", "Undone: {what}"), false, || display::restore(&snap, display::Extras::UNDO, true).map(|_| String::new())).map(drop)
 }
 
 /// Hors de la fenêtre, une erreur ou un avertissement doit rester visible.
@@ -994,7 +1003,10 @@ fn report(app: &AppHandle, msg: &str) {
 fn guarded<T>(app: &AppHandle, snap: display::Snapshot, f: impl FnOnce() -> Res<T>) -> Res<T> {
     let c = store(app).confirm;
     if !c.on {
-        return f();
+        // Confirmation coupée entre-temps : rien à attendre, Windows l'enregistre.
+        let out = f();
+        display::persist();
+        return out;
     }
     let mut pending = lock(&state_of(app).pending);
     // Une confirmation déjà en cours garde l'état d'origine comme point de retour.
@@ -1027,8 +1039,11 @@ fn guarded<T>(app: &AppHandle, snap: display::Snapshot, f: impl FnOnce() -> Res<
         if let Some(w) = app.get_webview_window("confirm") {
             let _ = w.destroy();
         }
-        match why.map(|why| (why, display::restore(&snap, display::Extras::UNDO))) {
-            None => note(&app, Level::Info, Src::System, t("Changement conservé", "Change kept")),
+        match why.map(|why| (why, display::restore(&snap, display::Extras::UNDO, true))) {
+            None => {
+                display::persist();
+                note(&app, Level::Info, Src::System, t("Changement conservé", "Change kept"));
+            }
             Some((why, Ok(_))) => {
                 lock(&state_of(&app).undo).take();
                 note(&app, Level::Warn, Src::System, &tr!("Affichage précédent rétabli ({why})", "Previous display settings restored ({why})"));
@@ -1075,7 +1090,7 @@ fn apply_from_desktop(id: &str) {
         return;
     };
     let what = tr!("Profil « {} » appliqué", "Profile “{}” applied", p.name);
-    let r = display::restore(&p.snap, p.extras());
+    let r = display::restore(&p.snap, p.extras(), true);
     if r.is_ok() && !p.placed_windows().is_empty() {
         thread::sleep(WINDOWS_SETTLE);
         placement::restore(p.placed_windows());
@@ -1250,6 +1265,12 @@ mod tests {
         assert_eq!(clean_name("  Bureau\n "), Ok("Bureau".into()));
         assert!(clean_name("   ").is_err());
         assert_eq!(clean_name(&"x".repeat(60)).map(|n| n.chars().count()), Ok(40));
+    }
+
+    #[test]
+    fn only_user_actions_wait_for_confirmation() {
+        assert!(Src::Window.manual() && Src::Menu.manual() && Src::Hotkey.manual() && Src::Desktop.manual());
+        assert!(!Src::Plug.manual() && !Src::Schedule.manual() && !Src::Power.manual() && !Src::Program.manual());
     }
 
     #[test]
