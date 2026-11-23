@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.28.0.schema.json
 PackageIdentifier: dotmehdi.MonitorMG
-PackageVersion: 2.2.4
+PackageVersion: 2.3.0
 Platform:
   - Windows.Desktop
 MinimumOSVersion: 10.0.0.0
@@ -13,10 +13,10 @@ UpgradeBehavior: install
 AppsAndFeaturesEntries:
   - DisplayName: MonitorMG
     Publisher: MonitorMG
-    DisplayVersion: 2.2.4
+    DisplayVersion: 2.3.0
 Installers:
   - Architecture: x64
-    InstallerUrl: https://github.com/dotmehdi/MonitorMG/releases/download/v2.2.4/MonitorMG-2.2.4-setup.exe
-    InstallerSha256: DC2252BC0B1E34FF96D9711436D2CCBD944113A7F3F9EE8ED4BB6135D477F2A7
+    InstallerUrl: https://github.com/dotmehdi/MonitorMG/releases/download/v2.3.0/MonitorMG-2.3.0-setup.exe
+    InstallerSha256: 0103F2EF277A677EBA74B003B61300D883F47E649B9E17A07408BBC751C98889
 ManifestType: installer
 ManifestVersion: 1.28.0
