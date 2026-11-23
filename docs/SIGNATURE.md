@@ -62,9 +62,9 @@ L'offre de Microsoft (~10 $/mois) serait idéale, mais la validation d'identité
 
 `winget install MonitorMG` installe sans navigateur ni SmartScreen (winget vérifie l'empreinte SHA-256 du manifeste). C'est le canal « sans encombre » le plus simple pour les utilisateurs techniques, signature ou pas.
 
-Des manifestes prêts pour la version 2.2.3, avec les vraies empreintes, sont dans [`dev/winget/`](../dev/winget/). Soumission :
+Des manifestes prêts pour la version 2.2.4, avec les vraies empreintes, sont dans [`dev/winget/`](../dev/winget/). Soumission :
 
-1. `wingetcreate submit dev/winget` (ou un fork de [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) avec les fichiers sous `manifests/d/dotmehdi/MonitorMG/2.2.3/`, puis une pull request).
+1. `wingetcreate submit dev/winget` (ou un fork de [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) avec les fichiers sous `manifests/d/dotmehdi/MonitorMG/2.2.4/`, puis une pull request).
 2. Les modérateurs peuvent demander des ajustements (identifiant du paquet, champs ARP) ; `wingetcreate` les calcule au besoin.
 3. Pour chaque version suivante : `wingetcreate update dotmehdi.MonitorMG --urls <url du setup.exe> --version X.Y.Z --submit` (automatisable dans le workflow de release plus tard).
 
