@@ -1,6 +1,6 @@
 [package]
 name = "monitormg"
-version = "2.2.4"
+version = "2.3.0"
 edition = "2021"
 license = "MIT"
 description = "Gestion des écrans pour Windows : disposition, résolution, fréquence, profils"
@@ -22,6 +22,7 @@ windows = { version = "0.62", features = [
   "Win32_Graphics_Dwm",
   "Win32_Graphics_Gdi",
   "Win32_Networking_WinHttp",
+  "Win32_Security_Cryptography",
   "Win32_UI_WindowsAndMessaging",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_Shell",

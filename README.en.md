@@ -39,8 +39,8 @@ The screenshots are taken from the development preview (`dev/serve.js`), with si
 
 | Edition | Who it's for | How |
 | --- | --- | --- |
-| Installer `MonitorMG-2.2.4-setup.exe` | Most users | Double-click it. No administrator rights are requested; MonitorMG installs for your account and appears in the Start menu. |
-| Portable `MonitorMG-2.2.4-portable.zip` | USB stick, machine without installation | Unzip into a personal folder and run `MonitorMG.exe`. Profiles and the log stay in the `data` folder next to it. |
+| Installer `MonitorMG-2.3.0-setup.exe` | Most users | Double-click it. No administrator rights are requested; MonitorMG installs for your account and appears in the Start menu. |
+| Portable `MonitorMG-2.3.0-portable.zip` | USB stick, machine without installation | Unzip into a personal folder and run `MonitorMG.exe`. Profiles and the log stay in the `data` folder next to it. |
 
 Prerequisite: Microsoft Edge WebView2, already present on Windows 11. The installer adds it if needed; for the portable edition, [download it here](https://go.microsoft.com/fwlink/p/?LinkId=2124703).
 
@@ -54,7 +54,7 @@ The `SHA256SUMS.txt` file published with each release lets you check that the do
 | Profiles | Click a profile to apply it; right-click or `⋯` to rename it, give it a keyboard shortcut, create its desktop shortcut, apply it when its displays are connected (ideal with a dock), give it triggers (every day at a set time, when plugged in or on battery, when a program starts) or choose which settings it applies: scaling, HDR and brightness can be left as they are, and the positions of the windows open when it was saved can be restored. |
 | DDC/CI | For each display: its name and presence in the panel, its brightness range (to harmonize displays that don't light up the same), the brightness VCP code, DDC/CI blocking. Then the controls announced by the display, to show in the panel: a slider for continuous settings (contrast, volume, gains…), choices for the others (input, color preset, mute), an on/off button. A continuous setting can follow brightness. A code missing from the list can be added by hand. For a display connected to two machines, input switching by shortcut: two inputs and a key combination replace a KVM switch. Finally, the behavior of "Turn displays off": Windows sleep, DDC/CI signal, or both. |
 | Activity | The history of every change, wherever it came from (window, menu, shortcut, connection), with **Undo**. |
-| Settings | Start with Windows, system tray icon (five to choose from), brightness by time of day (timed steps, with a smooth transition or at once), change confirmation and its delay, shortcuts to turn displays off and to raise or lower brightness plus the brightness step, the list of shortcuts, the data folder, the update check (optional). |
+| Settings | Start with Windows, system tray icon (five to choose from), brightness by time of day (timed steps, with a smooth transition or at once), change confirmation and its delay, shortcuts to turn displays off and to raise or lower brightness plus the brightness step, the list of shortcuts, the data folder, updates (check, download and install, each automatic or not; silent installation; data kept or not). |
 | System tray | Left click: the panel. Each display's brightness (mouse wheel on a slider), a single slider for all of them if you prefer, the DDC/CI controls you chose, an on/off button, profiles, turning displays off. Double click: the window. Right click: profiles, undo, and for each display its brightness (in steps, or the panel for fine adjustment), resolution, refresh rate, enabling and main display; projection, identification, turning displays off. |
 
 A risky change (resolution, refresh rate, orientation, enabling, projection) asks for confirmation: without an answer, the previous display settings come back after 15 s. The delay, from 5 to 60 s, is set in Settings.
@@ -103,7 +103,7 @@ MonitorMG.exe --minimized                                starts in the system tr
 
 ## Privacy
 
-MonitorMG runs entirely on your computer. It collects no data and needs no administrator rights. It never connects to the Internet, unless you turn on the update check (Settings): it then asks GitHub once a day for the name of the latest version, sending nothing else and downloading nothing. It only writes:
+MonitorMG runs entirely on your computer. It collects no data and needs no administrator rights. It never connects to the Internet, unless you turn on the update check (Settings) or run it yourself: it then asks GitHub once a day for the name of the latest version, sending nothing else. A new version is only downloaded if you ask for it or set it up that way, from the release page on GitHub, and is only installed once its SHA-256 hash has been verified. It only writes:
 
 - its profiles, settings and log to `%APPDATA%\MonitorMG` (or `data\` in the portable edition);
 - a startup entry in your account's registry, if you enable "Start with Windows".

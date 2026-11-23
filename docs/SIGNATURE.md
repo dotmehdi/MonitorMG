@@ -62,11 +62,11 @@ L'offre de Microsoft (~10 $/mois) serait idéale, mais la validation d'identité
 
 `winget install MonitorMG` installe sans navigateur ni SmartScreen (winget vérifie l'empreinte SHA-256 du manifeste). C'est le canal « sans encombre » le plus simple pour les utilisateurs techniques, signature ou pas.
 
-Des manifestes prêts pour la version 2.2.4, avec les vraies empreintes, sont dans [`dev/winget/`](../dev/winget/). Soumission :
+Des manifestes prêts pour la version 2.2.4, avec les vraies empreintes, sont dans [`dev/winget/`](../dev/winget/) (schéma 1.28, `winget validate --manifest dev/winget`).
 
-1. `wingetcreate submit dev/winget` (ou un fork de [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) avec les fichiers sous `manifests/d/dotmehdi/MonitorMG/2.2.4/`, puis une pull request).
-2. Les modérateurs peuvent demander des ajustements (identifiant du paquet, champs ARP) ; `wingetcreate` les calcule au besoin.
-3. Pour chaque version suivante : `wingetcreate update dotmehdi.MonitorMG --urls <url du setup.exe> --version X.Y.Z --submit` (automatisable dans le workflow de release plus tard).
+Première soumission : la 2.2.4, [microsoft/winget-pkgs#486724](https://github.com/microsoft/winget-pkgs/pull/486724), depuis le fork `dotmehdi/winget-pkgs` (fichiers sous `manifests/d/dotmehdi/MonitorMG/2.2.4/`). À faire une fois par le titulaire du compte : accepter le contrat de contributeur Microsoft en commentant la PR comme le demande le robot. Les modérateurs peuvent demander des ajustements (identifiant du paquet, champs ARP).
+
+Pour chaque version suivante : mêmes fichiers sous `manifests/d/dotmehdi/MonitorMG/X.Y.Z/`, version, adresse et empreinte à jour, PR intitulée « Update: dotmehdi.MonitorMG to X.Y.Z » ; ou `wingetcreate update dotmehdi.MonitorMG --urls <url du setup.exe> --version X.Y.Z --submit`.
 
 ## Après la première release signée
 

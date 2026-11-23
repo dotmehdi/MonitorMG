@@ -216,11 +216,30 @@
             <span class="row-label"><span>Vérifier les mises à jour</span><small>Une fois par jour, une seule requête à GitHub. Désactivé, MonitorMG ne se connecte jamais à Internet</small></span>
             <input type="checkbox" role="switch" class="switch" id="updates-on">
           </label>
+          <label class="row" data-installed>
+            <span class="row-label"><span>Télécharger automatiquement</span><small>Dès qu'une version est trouvée, vérifiée par son empreinte</small></span>
+            <input type="checkbox" role="switch" class="switch" id="auto-download">
+          </label>
+          <label class="row" data-installed>
+            <span class="row-label"><span>Installer automatiquement</span><small>Une fois téléchargée. MonitorMG se ferme le temps de l'installation et redémarre</small></span>
+            <input type="checkbox" role="switch" class="switch" id="auto-install">
+          </label>
+          <label class="row" data-installed>
+            <span class="row-label"><span>Installation silencieuse</span><small>Désactivée, une fenêtre montre la progression</small></span>
+            <input type="checkbox" role="switch" class="switch" id="auto-silent">
+          </label>
+          <label class="row" data-installed>
+            <span class="row-label"><span>Conserver les profils et réglages</span><small>Avec le journal d'activité</small></span>
+            <input type="checkbox" role="switch" class="switch" id="auto-keep">
+          </label>
+          <p class="foot-note" id="auto-keep-off" hidden>La prochaine mise à jour effacera profils, réglages et journal : la nouvelle version repartira de zéro.</p>
           <div class="row">
             <span class="row-label"><span id="update-status"></span><small id="update-hint"></small></span>
             <span class="range-inputs">
               <button class="btn" id="update-check">Vérifier maintenant</button>
-              <button class="btn primary" id="update-open" hidden>Voir la version</button>
+              <button class="btn primary" id="update-download" hidden>Télécharger</button>
+              <button class="btn primary" id="update-install" hidden>Installer</button>
+              <button class="btn" id="update-open" hidden>Voir la version</button>
             </span>
           </div>
         </div>

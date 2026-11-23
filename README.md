@@ -37,8 +37,8 @@ Les captures sont prises sur l'aperçu de développement (`dev/serve.js`), avec 
 
 | Édition | Pour qui | Comment |
 | --- | --- | --- |
-| Installateur `MonitorMG-2.2.4-setup.exe` | La plupart des utilisateurs | Double-cliquez. Aucun droit administrateur n'est demandé ; MonitorMG s'installe pour votre compte et apparaît dans le menu Démarrer. |
-| Portable `MonitorMG-2.2.4-portable.zip` | Clé USB, poste sans installation | Décompressez dans un dossier personnel et lancez `MonitorMG.exe`. Profils et journal restent dans le dossier `data`, à côté. |
+| Installateur `MonitorMG-2.3.0-setup.exe` | La plupart des utilisateurs | Double-cliquez. Aucun droit administrateur n'est demandé ; MonitorMG s'installe pour votre compte et apparaît dans le menu Démarrer. |
+| Portable `MonitorMG-2.3.0-portable.zip` | Clé USB, poste sans installation | Décompressez dans un dossier personnel et lancez `MonitorMG.exe`. Profils et journal restent dans le dossier `data`, à côté. |
 
 Prérequis : Microsoft Edge WebView2, déjà présent sur Windows 11. L'installateur l'ajoute si besoin ; pour l'édition portable, [téléchargez-le ici](https://go.microsoft.com/fwlink/p/?LinkId=2124703).
 
@@ -52,7 +52,7 @@ Le fichier `SHA256SUMS.txt` publié avec chaque version permet de vérifier que 
 | Profils | Cliquez un profil pour l'appliquer ; clic droit ou `⋯` pour le renommer, lui donner un raccourci clavier, créer son raccourci sur le bureau, l'appliquer au branchement de ses écrans (idéal avec un dock), lui donner des déclencheurs (chaque jour à heure fixe, au passage sur secteur ou sur batterie, au lancement d'un programme) ou choisir les réglages qu'il applique : mise à l'échelle, HDR et luminosité peuvent être laissés tels quels, et la place des fenêtres ouvertes à son enregistrement peut être rétablie. |
 | DDC/CI | Pour chaque écran : nom et présence dans le panneau, plage de luminosité (pour harmoniser des écrans différents), code VCP de la luminosité, blocage de DDC/CI. Puis les commandes annoncées par l'écran, à afficher dans le panneau : un curseur pour les réglages continus (contraste, volume, gains…), des choix pour les autres (entrée, préréglage couleur, sourdine), un bouton marche/arrêt. Un réglage continu peut suivre la luminosité. Un code absent de la liste peut être ajouté à la main. Pour un écran branché à deux machines, la bascule d'entrée par raccourci : deux entrées et une combinaison de touches remplacent un boîtier KVM. Enfin, le comportement de « Éteindre les écrans » : veille de Windows, signal DDC/CI, ou les deux. |
 | Activité | L'historique de chaque changement, d'où qu'il vienne (fenêtre, menu, raccourci, branchement), avec **Annuler**. |
-| Paramètres | Lancement avec Windows, icône de la zone de notification (cinq au choix), luminosité selon l'heure (des étapes horaires, en transition douce ou par paliers), confirmation des changements et son délai, raccourcis pour éteindre les écrans, monter ou baisser la luminosité et le pas de luminosité, liste des raccourcis, dossier des données, vérification des mises à jour (sur option). |
+| Paramètres | Lancement avec Windows, icône de la zone de notification (cinq au choix), luminosité selon l'heure (des étapes horaires, en transition douce ou par paliers), confirmation des changements et son délai, raccourcis pour éteindre les écrans, monter ou baisser la luminosité et le pas de luminosité, liste des raccourcis, dossier des données, mises à jour (vérification, téléchargement et installation, chacun automatique ou non ; installation silencieuse ; données gardées ou non). |
 | Zone de notification | Clic gauche : le panneau. Luminosité de chaque écran (molette sur un curseur), un seul curseur pour tous si vous le souhaitez, réglages DDC/CI choisis, bouton marche/arrêt, profils, extinction des écrans. Double clic : la fenêtre. Clic droit : profils, annulation, et pour chaque écran la luminosité (paliers, ou le panneau pour le réglage précis), la résolution, la fréquence, l'activation et l'écran principal ; projection, identification, extinction des écrans. |
 
 Un changement risqué (résolution, fréquence, orientation, activation, projection) demande confirmation : sans réponse, l'affichage précédent revient au bout de 15 s. Le délai, de 5 à 60 s, se règle dans Paramètres.
@@ -101,7 +101,7 @@ MonitorMG.exe --minimized                             démarre dans la zone de n
 
 ## Confidentialité
 
-MonitorMG fonctionne entièrement sur votre ordinateur. Il ne collecte aucune donnée et n'a besoin d'aucun droit administrateur. Il ne se connecte jamais à Internet, sauf si vous activez la vérification des mises à jour (Paramètres) : il demande alors une fois par jour à GitHub le nom de la dernière version, sans rien envoyer d'autre ni rien télécharger. Il écrit uniquement :
+MonitorMG fonctionne entièrement sur votre ordinateur. Il ne collecte aucune donnée et n'a besoin d'aucun droit administrateur. Il ne se connecte jamais à Internet, sauf si vous activez la vérification des mises à jour (Paramètres) ou la lancez vous-même : il demande alors une fois par jour à GitHub le nom de la dernière version, sans rien envoyer d'autre. Une nouvelle version n'est téléchargée que si vous le demandez ou l'avez réglé ainsi, depuis la page de la release sur GitHub, et n'est installée qu'après vérification de son empreinte SHA-256. Il écrit uniquement :
 
 - ses profils, réglages et son journal dans `%APPDATA%\MonitorMG` (ou `data\` en édition portable) ;
 - une entrée de démarrage dans le registre de votre compte, si vous activez « Lancer avec Windows ».

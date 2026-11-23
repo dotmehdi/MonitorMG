@@ -111,6 +111,26 @@ impl Default for Confirm {
     }
 }
 
+/// Suite donnée à une version plus récente trouvée par la vérification.
+#[derive(Serialize, Deserialize, Clone, Copy)]
+#[serde(default)]
+pub struct AutoUpdate {
+    /// Télécharger la version trouvée, sans attendre un clic.
+    pub download: bool,
+    /// L'installer une fois téléchargée.
+    pub install: bool,
+    /// Sans fenêtre d'installation ; sinon, une fenêtre de progression sans question.
+    pub silent: bool,
+    /// Garder profils, réglages et journal ; sinon, la nouvelle version repart de zéro.
+    pub keep_data: bool,
+}
+
+impl Default for AutoUpdate {
+    fn default() -> Self {
+        Self { download: false, install: false, silent: true, keep_data: true }
+    }
+}
+
 /// Luminosité des écrans dupliqués pendant l'identification, où ils sont désignés à tour de rôle.
 #[derive(Serialize, Deserialize, Clone, Copy, Default)]
 #[serde(default)]
@@ -438,7 +458,17 @@ pub struct Store {
     /// option, MonitorMG ne se connecte jamais à Internet.
     #[serde(default)]
     pub updates: bool,
+    #[serde(default)]
+    pub auto_update: AutoUpdate,
 }
+
+/// Dossier des données dans %APPDATA%. Une version d'essai en prend un autre
+/// (MONITORMG_DATA à la compilation, voir docs/DEVELOPPEMENT.md) : ses essais ne touchent
+/// jamais aux profils de la version installée.
+pub const DATA_NAME: &str = match option_env!("MONITORMG_DATA") {
+    Some(n) => n,
+    None => "MonitorMG",
+};
 
 /// Dossier de l'exécutable s'il contient un fichier `portable`.
 fn portable_root() -> Option<PathBuf> {
@@ -456,7 +486,7 @@ pub fn data_dir() -> PathBuf {
     static DIR: OnceLock<PathBuf> = OnceLock::new();
     DIR.get_or_init(|| match portable_root() {
         Some(d) => d.join("data"),
-        None => PathBuf::from(std::env::var_os("APPDATA").unwrap_or_default()).join("MonitorMG"),
+        None => PathBuf::from(std::env::var_os("APPDATA").unwrap_or_default()).join(DATA_NAME),
     })
     .clone()
 }

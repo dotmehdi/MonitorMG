@@ -164,6 +164,9 @@ struct View {
     /// Vérification quotidienne des mises à jour, et version plus récente déjà trouvée.
     updates: bool,
     update: Option<String>,
+    /// « download », « ready » ou « install » : où en est la version trouvée.
+    update_step: Option<&'static str>,
+    auto_update: store::AutoUpdate,
 }
 
 /// Valeur d'un réglage DDC/CI : en % pour un réglage continu, brute pour un réglage à
@@ -185,7 +188,7 @@ async fn state(app: AppHandle) -> Res<View> {
     let monitors = display::monitors()?;
     read_brightness(&app, false);
     let sig = display::signature().unwrap_or_default();
-    let (profiles, confirm, identify, hotkeys, panel, mut screens, schedule, updates) = {
+    let (profiles, confirm, identify, hotkeys, panel, mut screens, schedule, (updates, auto_update)) = {
         let s = store(&app);
         let views = s
             .profiles
@@ -204,7 +207,7 @@ async fn state(app: AppHandle) -> Res<View> {
                     .collect(),
             })
             .collect();
-        (views, s.confirm, s.identify, [s.off_hotkey.clone(), s.up_hotkey.clone(), s.down_hotkey.clone()], s.panel.clone(), s.screens.clone(), s.schedule.clone(), s.updates)
+        (views, s.confirm, s.identify, [s.off_hotkey.clone(), s.up_hotkey.clone(), s.down_hotkey.clone()], s.panel.clone(), s.screens.clone(), s.schedule.clone(), (s.updates, s.auto_update))
     };
     let [off_hotkey, up_hotkey, down_hotkey] = hotkeys;
     for m in &monitors {
@@ -235,6 +238,8 @@ async fn state(app: AppHandle) -> Res<View> {
         schedule,
         updates,
         update: update::newer(),
+        update_step: update::step(),
+        auto_update,
     })
 }
 
@@ -627,12 +632,37 @@ async fn set_updates(app: AppHandle, on: bool) -> Res<()> {
     Ok(())
 }
 
-/// « Vérifier maintenant » : renvoie la version disponible, s'il y en a une plus récente.
+/// « Vérifier maintenant » : renvoie la version disponible, s'il y en a une plus récente,
+/// et la télécharge ou l'installe ensuite si c'est réglé ainsi.
 #[tauri::command]
 async fn check_update(app: AppHandle) -> Res<Option<String>> {
     let found = update::check()?;
     changed(&app);
+    if found.is_some() {
+        thread::spawn(move || update::follow(&app));
+    }
     Ok(found)
+}
+
+#[tauri::command]
+async fn download_update(app: AppHandle) -> Res<()> {
+    update::download(&app)
+}
+
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Res<()> {
+    update::install(&app)
+}
+
+#[tauri::command]
+async fn set_auto_update(app: AppHandle, auto: store::AutoUpdate) -> Res<()> {
+    save_with(&app, |s| {
+        s.auto_update = auto;
+        Ok(())
+    })?;
+    // Une version déjà trouvée suit les nouveaux réglages sans attendre la prochaine vérification.
+    thread::spawn(move || update::follow(&app));
+    Ok(())
 }
 
 #[tauri::command]
@@ -1209,6 +1239,9 @@ fn main() {
             set_updates,
             check_update,
             open_releases,
+            download_update,
+            install_update,
+            set_auto_update,
             profile_include,
             profile_shortcut,
             set_autostart,

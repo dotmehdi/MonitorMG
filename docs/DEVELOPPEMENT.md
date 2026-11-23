@@ -17,7 +17,7 @@ Rust + [Tauri 2](https://tauri.app). L'interface est en HTML, CSS et JavaScript,
 | `src/placement.rs` | Place des fenêtres d'un profil : relevé (`EnumWindows`, `GetWindowPlacement`), association aux fenêtres ouvertes (`pair`), remise en place. |
 | `src/rekey.rs` | Écrans renumérotés par Windows (pilote réinstallé ou mis à jour, écran rebranché ailleurs) : profils et préférences DDC/CI rattachés à l'écran branché du même modèle, sur le même adaptateur (`matches`, `run`). |
 | `src/cli.rs` | Ligne de commande : `--profile`, `--brightness`, `--input`, `--off`, `--json`, dans l'application en marche ou seule. |
-| `src/update.rs` | Vérification des mises à jour sur option : une requête WinHTTP à l'API des releases de GitHub. |
+| `src/update.rs` | Mises à jour : vérification (API des releases de GitHub), téléchargement de l'installateur et de `SHA256SUMS.txt` par WinHTTP, empreinte SHA-256 par l'API de chiffrement de Windows, installation. |
 | `src/store.rs` | Profils et réglages (`config.json`, réparés à la lecture), préférences DDC/CI par écran (`Screen`, `Feature`) et du panneau (`Panel`, `OffMode`, `PowerSignal`), mode portable, raccourcis bureau, couleur d'accent. |
 | `src/journal.rs` | Journal d'activité : une ligne JSON par événement (`Level`), écrite en un seul appel, fichier tournant à 512 Ko. Il nourrit la vue Activité et sert au diagnostic. |
 | `ui/` | Interface : `index.html`, `app.js`, `style.css`, `i18n.js` (traduction anglaise), `common.js` (outils partagés : `el`, envoi `latest`, aimantation `snap`), `vcp.js` (noms MCCS des codes et valeurs), le panneau de la zone de notification (`flyout.html`, `flyout.js`), plus les fenêtres de confirmation et d'identification. |
@@ -76,6 +76,14 @@ La bascule d'entrée (`@input|<clé d'écran>` parmi les propriétaires de racco
 
 Chaque modification d'affichage passe par `act()` : capture de l'état d'avant, application (sous confirmation si elle est risquée), entrée dans le journal avec sa source, mémorisation de l'état d'avant pour « Annuler ». La fenêtre de confirmation rétablit l'état d'origine si personne ne répond.
 
+### Mises à jour
+
+`update.rs` vérifie une fois par jour (option `updates`) ou sur demande. Une version trouvée suit les réglages `auto_update` : téléchargement de `MonitorMG-X.Y.Z-setup.exe` et de `SHA256SUMS.txt` depuis la release, gardé dans `%TEMP%\MonitorMG-maj` seulement si l'empreinte correspond ; installation ensuite, automatique ou au clic. L'adresse est construite à partir du numéro de version (chiffres et points), jamais tirée de la réponse de GitHub. Avant d'installer, l'empreinte du fichier est vérifiée à nouveau, et l'installation attend qu'aucun changement d'affichage n'attende confirmation et qu'aucune identification n'assombrisse d'écran.
+
+L'installation passe par `cmd /c` : l'installateur NSIS (`/S` silencieux ou `/P` progression seule, `/UPDATE`, et `/FRESH` pour repartir de zéro), puis MonitorMG relancé, même si l'installation a échoué. MonitorMG se ferme aussitôt ; l'installateur, qui ferme sinon l'application par son chemin (Restart Manager), remplace les fichiers. `/FRESH` est traité par `windows/hooks.nsh` après l'installation : il efface `%APPDATA%\MonitorMG`. L'édition portable ne se met pas à jour seule : elle ouvre la page de la version.
+
+Essai complet sans toucher à la version installée : une « MonitorMG Essai » compilée avec `MONITORMG_UPDATES=http://127.0.0.1:4600` (serveur local qui imite les releases), `MONITORMG_DATA="MonitorMG Essai"` (son propre dossier de données) et `TAURI_CONFIG={"identifier":"app.monitormg.essai","productName":"MonitorMG Essai","mainBinaryName":"MonitorMGEssai","version":"X.Y.Z"}`. Les hooks NSIS utilisent `${PRODUCTNAME}` : ses données et son lancement avec Windows sont les siens.
+
 ### Données
 
 `%APPDATA%\MonitorMG` : `config.json`, `logs\activite.jsonl`. En édition portable (fichier `portable` à côté de l'exécutable), tout va dans `data\` à côté, y compris les données WebView2.
@@ -88,7 +96,7 @@ cargo test -- --ignored        # test réel de la luminosité, écran par écran
 cargo clippy --all-targets     # aucun avertissement attendu, lints de verrous compris
 cargo audit                    # vulnérabilités connues des dépendances
 npm ci && npm run test:ui      # tests de l'interface (node --test)
-node dev/serve.js ui 4517      # aperçu de l'interface dans un navigateur, avec un faux backend (dev/mock.js) ; ?lang=en pour l'anglais
+node dev/serve.js ui 4517      # aperçu de l'interface dans un navigateur, avec un faux backend (dev/mock.js) ; ?lang=en pour l'anglais, ?update=2.3.0&step=ready pour une mise à jour, &portable=1
 node dev/captures.js           # captures d'écran du README (docs/screenshots/) depuis cet aperçu ; nécessite Playwright et les polices Segoe
 node scripts/release.mjs       # installateur, édition portable et SHA256SUMS.txt dans dist/, avec la version de Tauri CLI figée par package-lock.json
 ```

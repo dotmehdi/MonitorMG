@@ -1,5 +1,29 @@
 # Journal des modifications
 
+## 2.3.0
+
+Nouveauté : MonitorMG se met à jour lui-même, depuis les releases de GitHub.
+
+### Mises à jour
+
+- Paramètres, « Mises à jour » : vérification, téléchargement et installation, chacun automatique ou non. Par défaut, rien ne change : vérification désactivée, téléchargement et installation au clic (« Télécharger », puis « Installer »).
+- L'installateur est téléchargé depuis la release et gardé seulement si son empreinte SHA-256 est celle annoncée dans le `SHA256SUMS.txt` publié avec lui. Elle est vérifiée à nouveau juste avant l'installation.
+- Installation silencieuse, ou avec une simple fenêtre de progression. MonitorMG se ferme le temps de l'installation et revient de lui-même, en arrière-plan si sa fenêtre était fermée. Si l'installation échoue, l'ancienne version revient.
+- Profils, réglages et journal sont gardés. « Conserver les profils et réglages » désactivé, la nouvelle version repart de zéro ; un avertissement le rappelle sous le réglage.
+- L'installation automatique attend qu'aucun changement d'affichage n'attende confirmation et qu'aucune identification n'assombrisse d'écran.
+- Édition portable : vérification seulement ; la nouvelle archive se télécharge depuis la page de la version.
+
+### winget
+
+- Première soumission au dépôt officiel de winget (microsoft/winget-pkgs#486724), manifestes au schéma 1.28.
+
+### Technique
+
+- `update.rs` : requête WinHTTP générique (code HTTP vérifié, taille bornée, redirections suivies), SHA-256 par l'API de chiffrement de Windows ; commandes `download_update`, `install_update`, `set_auto_update`.
+- `windows/hooks.nsh` : option `/FRESH` ; données et lancement avec Windows désignés par le nom du produit.
+- Version d'essai complète, isolée de la version installée : `MONITORMG_UPDATES`, `MONITORMG_DATA` (voir `docs/DEVELOPPEMENT.md`).
+- 50 tests Rust, 5 tests de l'interface. Essai de bout en bout sur une version d'essai installée : mise à jour automatique silencieuse avec données gardées, mise à jour au clic avec fenêtre de progression et données effacées, fichier corrompu refusé, vérification quotidienne avec relance en arrière-plan.
+
 ## 2.2.4
 
 Correction : en mode Dupliquer, seul le premier écran se réglait.

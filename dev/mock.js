@@ -51,7 +51,7 @@
     accent: ["#76b9ed", "#005a9e"],
     undo: L("DELL U2723QE : 3840 × 2160 à 60 Hz", "DELL U2723QE: 3840 × 2160 at 60 Hz"),
     version: "1.0.0",
-    portable: false,
+    portable: q.get("portable") === "1",
     data_dir: L(String.raw`C:\Users\vous\AppData\Roaming\MonitorMG`, String.raw`C:\Users\you\AppData\Roaming\MonitorMG`),
   };
   const now = Date.now();
@@ -74,7 +74,10 @@
   ];
   state.profiles[0].extras = extras(`${pct(150)} / ${pct(150)} / ${pct(150)}`, L("désactivé / activé", "off / on"), `${pct(75)} / ${pct(40)}`, 9);
   state.updates = false;
-  state.update = null;
+  // ?update=2.3.0 : une version trouvée ; &step=ready, download ou install : où elle en est.
+  state.update = q.get("update");
+  state.update_step = state.update ? q.get("step") : null;
+  state.auto_update = { download: false, install: false, silent: true, keep_data: true };
   state.profiles[1].extras = extras(pct(150), "", pct(60));
   state.profiles[2].extras = extras(pct(100), "", "");
   state.profiles[3].extras = extras(pct(200), L("activé", "on"), pct(60));
@@ -128,6 +131,9 @@
         }
         if (cmd === "set_updates") state.updates = args.on;
         if (cmd === "check_update") return (state.update = "2.3.0");
+        if (cmd === "download_update") state.update_step = "ready";
+        if (cmd === "install_update") state.update_step = "install";
+        if (cmd === "set_auto_update") state.auto_update = { ...args.auto };
         if (cmd === "open_releases") console.log("ouverture de la page des versions");
         if (cmd === "input_hotkey") state.screens[args.key].input_hotkey = args.hotkey;
         if (cmd === "profile_include") state.profiles.find((p) => p.id === args.id).extras.find((x) => x.id === args.setting).on = args.on;

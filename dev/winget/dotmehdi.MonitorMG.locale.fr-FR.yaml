@@ -1,5 +1,4 @@
-# Manifeste winget (locale française) pour MonitorMG 2.2.4 — voir docs/SIGNATURE.md.
-# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.6.0.schema.json
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.28.0.schema.json
 PackageIdentifier: dotmehdi.MonitorMG
 PackageVersion: 2.2.4
 PackageLocale: fr-FR
@@ -26,4 +25,4 @@ Tags:
   - écran
 ReleaseNotesUrl: https://github.com/dotmehdi/MonitorMG/releases/tag/v2.2.4
 ManifestType: locale
-ManifestVersion: 1.6.0
+ManifestVersion: 1.28.0

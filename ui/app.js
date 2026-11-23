@@ -1159,9 +1159,7 @@ function renderSettings() {
   renderTrayIcons();
   renderSchedule();
   $("#updates-on").checked = S.updates;
-  $("#update-status").textContent = S.update ? t("MonitorMG {0} est disponible", S.update) : t("Version {0}", S.version);
-  $("#update-hint").textContent = S.update ? t("Vous utilisez la version {0}", S.version) : upToDate ? t("MonitorMG est à jour") : "";
-  $("#update-open").hidden = !S.update;
+  renderUpdates();
   for (const [id, combo, what] of [
     ["#off-hotkey", S.off_hotkey, t("éteindre les écrans")],
     ["#up-hotkey", S.up_hotkey, t("monter la luminosité")],
@@ -1192,6 +1190,33 @@ function renderSettings() {
 // ------------------------------------------------------------ luminosité selon l'heure
 
 let upToDate = false; // une vérification vient de ne rien trouver de plus récent
+
+/** Mises à jour : réglages, puis où en est la version trouvée et l'action suivante. */
+function renderUpdates() {
+  const a = S.auto_update;
+  for (const r of document.querySelectorAll("[data-installed]")) r.hidden = S.portable;
+  $("#auto-download").checked = a.download;
+  $("#auto-install").checked = a.install;
+  $("#auto-silent").checked = a.silent;
+  $("#auto-keep").checked = a.keep_data;
+  $("#auto-keep-off").hidden = S.portable || a.keep_data;
+  const step = S.update ? S.update_step : null;
+  $("#update-status").textContent = !S.update
+    ? t("Version {0}", S.version)
+    : ({
+        download: t("Téléchargement de MonitorMG {0}…", S.update),
+        ready: t("MonitorMG {0} est prêt à installer", S.update),
+        install: t("Installation de MonitorMG {0}…", S.update),
+      }[step] ?? t("MonitorMG {0} est disponible", S.update));
+  $("#update-hint").textContent =
+    step === "ready" ? t("Vérifié par son empreinte SHA-256") : S.update ? t("Vous utilisez la version {0}", S.version) : upToDate ? t("MonitorMG est à jour") : "";
+  $("#update-check").hidden = !!S.update;
+  $("#update-download").hidden = !S.update || S.portable || step != null;
+  $("#update-install").hidden = step !== "ready";
+  // L'édition portable se met à jour depuis la page de la version : c'est son action principale.
+  $("#update-open").hidden = !S.update;
+  $("#update-open").classList.toggle("primary", S.portable);
+}
 
 const SCHEDULE_MAX = 12; // comme Schedule::MAX_STEPS côté backend
 
@@ -1507,6 +1532,13 @@ $("#update-check").addEventListener("click", async () => {
   if (found !== undefined) upToDate = !found;
 });
 $("#update-open").addEventListener("click", () => run("open_releases"));
+$("#update-download").addEventListener("click", () => run("download_update", {}, t("Nouvelle version téléchargée et vérifiée")));
+$("#update-install").addEventListener("click", () => run("install_update"));
+const saveAutoUpdate = () =>
+  run("set_auto_update", {
+    auto: { download: $("#auto-download").checked, install: $("#auto-install").checked, silent: $("#auto-silent").checked, keep_data: $("#auto-keep").checked },
+  });
+for (const id of ["#auto-download", "#auto-install", "#auto-silent", "#auto-keep"]) $(id).addEventListener("change", saveAutoUpdate);
 $("#autostart").addEventListener("change", (e) => run("set_autostart", { on: e.target.checked }, e.target.checked ? t("MonitorMG se lancera avec Windows") : t("Lancement avec Windows désactivé")));
 const saveConfirm = () => run("set_confirm", { on: $("#confirm-on").checked, secs: Number($("#confirm-secs").value) });
 $("#confirm-on").addEventListener("change", saveConfirm);

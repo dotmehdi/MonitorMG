@@ -203,10 +203,17 @@ struct Card {
     levels: Vec<(String, Option<u32>)>,
 }
 
+/// Identification en cours. Une à la fois : la suivante prendrait un écran assombri pour
+/// réglé ainsi.
+static SHOWING: AtomicBool = AtomicBool::new(false);
+
+/// Des écrans peuvent être assombris par l'identification.
+pub(crate) fn identifying() -> bool {
+    SHOWING.load(Ordering::SeqCst)
+}
+
 /// Affiche le numéro de chaque écran actif, comme le bouton « Identifier » de Windows.
 pub(crate) fn identify(app: &AppHandle) -> Res<()> {
-    // Une à la fois : la suivante prendrait un écran assombri pour réglé ainsi.
-    static SHOWING: AtomicBool = AtomicBool::new(false);
     let mons = display::monitors()?;
     if SHOWING.swap(true, Ordering::SeqCst) {
         return Ok(());
