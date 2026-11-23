@@ -28,6 +28,11 @@
       mon({ key: "c", name: "LG 27UL850", connector: "HDMI", active: true, x: 3840, y: -400, w: 2160, h: 3840, hz: 60, rotation: 90, native: [3840, 2160], modes: fourK.map((m) => ({ ...m, w: m.h, h: m.w })), scale: { current: 150, recommended: 150, options: [100, 125, 150, 175, 200] }, hdr: true, brightness: 80, soft: true }),
       mon({ key: "d", name: "Samsung Odyssey G5", connector: "DisplayPort", active: false, w: 2560, h: 1440, native: [2560, 1440] }),
     ],
+    // Dupliquer : même image, chaque écran garde sa luminosité et son HDR.
+    clone: [
+      mon({ key: "a", name: "AORUS FO32U2", connector: "DisplayPort", active: true, primary: true, w: 3840, h: 2160, hz: 60, native: [3840, 2160], modes: fourK, scale: { current: 200, recommended: 150, options: [100, 125, 150, 175, 200, 225, 250, 300] }, hdr: false, brightness: 60 }),
+      mon({ key: "b", name: "BenQ EW3270U", connector: "DisplayPort", active: true, mirror_of: "a", w: 3840, h: 2160, hz: 60, native: [3840, 2160], modes: fourK, scale: { current: 200, recommended: 150, options: [100, 125, 150, 175, 200, 225, 250, 300] }, hdr: false, brightness: 45 }),
+    ],
   };
   const sc = q.get("s") || "dock";
   const tiles = (ms) => ms.filter((m) => m.active).map(({ name, x, y, w, h, hz, primary }) => ({ name, x, y, w, h, hz, primary }));
@@ -39,9 +44,10 @@
       { id: "3", name: L("Présentation salle B", "Room B presentation"), hotkey: null, tiles: [{ name: builtin, x: 0, y: 0, w: 1920, h: 1080, hz: 60, primary: true }], active: false, auto: false },
       { id: "4", name: L("Jeu 240 Hz", "Gaming 240 Hz"), hotkey: "Ctrl+Alt+Shift+KeyG", tiles: tiles(scenarios.desk), active: sc === "desk", auto: false },
     ],
-    topology: "extend",
+    topology: sc === "clone" ? "clone" : "extend",
     autostart: true,
     confirm: { on: true, secs: 15 },
+    identify: { lit: null, dim: 0 },
     accent: ["#76b9ed", "#005a9e"],
     undo: L("DELL U2723QE : 3840 × 2160 à 60 Hz", "DELL U2723QE: 3840 × 2160 at 60 Hz"),
     version: "1.0.0",
@@ -110,6 +116,7 @@
         }
         if (cmd === "set_brightness") state.monitors.find((m) => m.key === args.key).brightness = args.pct;
         if (cmd === "set_confirm") state.confirm = { on: args.on, secs: args.secs };
+        if (cmd === "set_identify") state.identify = { lit: args.lit, dim: args.dim };
         if (cmd === "set_positions") for (const [k, x, y] of args.list) Object.assign(state.monitors.find((m) => m.key === k), { x, y });
         if (cmd === "profile_hotkey" && args.hotkey === "Ctrl+KeyW") throw L("Cette combinaison est déjà prise par une autre application", "This combination is already taken by another app");
         if (cmd === "profile_apply" && args.id === "2") return L("Un écran du profil n'est pas branché", "One display from the profile is not connected");

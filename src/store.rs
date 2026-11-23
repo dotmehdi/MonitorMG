@@ -111,6 +111,22 @@ impl Default for Confirm {
     }
 }
 
+/// Luminosité des écrans dupliqués pendant l'identification, où ils sont désignés à tour de rôle.
+#[derive(Serialize, Deserialize, Clone, Copy, Default)]
+#[serde(default)]
+pub struct Identify {
+    /// Écran désigné ; `None` : il garde la sienne.
+    pub lit: Option<u32>,
+    /// Les autres.
+    pub dim: u32,
+}
+
+impl Identify {
+    pub fn checked(self) -> Self {
+        Self { lit: self.lit.map(|l| l.min(100)), dim: self.dim.min(100) }
+    }
+}
+
 /// Position et taille de la fenêtre principale (pixels physiques).
 #[derive(Serialize, Deserialize, Clone, Copy)]
 pub struct Place {
@@ -398,6 +414,8 @@ pub struct Store {
     #[serde(default)]
     pub confirm: Confirm,
     #[serde(default)]
+    pub identify: Identify,
+    #[serde(default)]
     pub window: Option<Place>,
     /// Icône choisie pour la zone de notification (vide : celle par défaut).
     #[serde(default)]
@@ -465,6 +483,7 @@ impl Store {
     /// calculs de luminosité, un délai nul annulerait chaque changement aussitôt.
     fn sanitized(mut self) -> Self {
         self.confirm.secs = self.confirm.secs.clamp(5, 120);
+        self.identify = self.identify.checked();
         self.panel = self.panel.checked();
         for sc in self.screens.values_mut() {
             *sc = std::mem::take(sc).repaired();
@@ -662,10 +681,11 @@ mod tests {
 
     #[test]
     fn bad_values_in_the_file_are_repaired() {
-        let json = r#"{"confirm":{"secs":0},"panel":{"power":9,"off":"nope","step":0},
+        let json = r#"{"confirm":{"secs":0},"panel":{"power":9,"off":"nope","step":0},"identify":{"lit":300,"dim":101},
             "screens":{"a":{"range":[80,20],"features":[{"code":18,"range":[60,10],"stop":0},{"code":4},{"code":18}]}}}"#;
         let s = serde_json::from_str::<Store>(json).unwrap().sanitized();
         assert_eq!((s.confirm.secs, s.panel.power, s.panel.off, s.panel.step), (5, PowerSignal::Off, OffMode::Soft, 1));
+        assert_eq!((s.identify.lit, s.identify.dim), (Some(100), 100));
         let a = &s.screens["a"];
         assert_eq!(a.range, Range::FULL);
         assert_eq!(a.features, [Feature { code: 18, range: Range::FULL, linked: false, stop: 1 }]);

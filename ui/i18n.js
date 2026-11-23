@@ -74,7 +74,10 @@ const EN = {
   Désactivé: "Disabled",
   "Cet écran est branché mais n'affiche rien. Activez-le pour régler sa résolution et sa place.":
     "This display is connected but shows nothing. Enable it to set its resolution and position.",
-  "Affiche la même image que {0}.": "Shows the same image as {0}.",
+  "Affiche la même image que {0}. Résolution, mise à l'échelle et orientation se règlent depuis celui-ci.":
+    "Shows the same image as {0}. Resolution, scaling and orientation are set from that display.",
+  "Écrans dupliqués": "Duplicated displays",
+  " et ": " and ",
   "un autre écran": "another display",
   Résolution: "Resolution",
   "(natif)": "(native)",
@@ -259,6 +262,11 @@ const EN = {
   "Tous les écrans réglables": "All adjustable displays",
   "Pas de luminosité": "Brightness step",
   "À chaque appui": "Per key press",
+  "Luminosité de l'écran désigné": "Brightness of the highlighted display",
+  "En mode Dupliquer, les écrans sont désignés à tour de rôle": "In Duplicate mode, displays are highlighted one at a time",
+  Inchangée: "Unchanged",
+  "Luminosité des autres écrans": "Brightness of the other displays",
+  "Pendant le tour de l'écran désigné": "While the highlighted display has its turn",
   "éteindre les écrans": "turn displays off",
   "monter la luminosité": "raise brightness",
   "baisser la luminosité": "lower brightness",

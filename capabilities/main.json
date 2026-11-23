@@ -30,6 +30,7 @@
     "allow-set-autostart",
     "allow-set-brightness",
     "allow-set-confirm",
+    "allow-set-identify",
     "allow-set-enabled",
     "allow-set-hdr",
     "allow-set-panel",

@@ -2106,7 +2106,7 @@ dependencies = [
 
 [[package]]
 name = "monitormg"
-version = "2.2.3"
+version = "2.2.4"
 dependencies = [
  "serde",
  "serde_json",

@@ -44,6 +44,7 @@ const COMMANDS: &[&str] = &[
     "profile_shortcut",
     "set_autostart",
     "set_confirm",
+    "set_identify",
     "set_tray_icon",
 ];
 

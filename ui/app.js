@@ -85,8 +85,8 @@ function render() {
     ? `#${CSS.escape(f.id)}`
     : f?.dataset?.key
       ? `[data-key="${CSS.escape(f.dataset.key)}"]`
-      : f?.name === "hz"
-        ? 'input[name="hz"]:checked'
+      : f?.type === "radio"
+        ? `input[name="${CSS.escape(f.name)}"]:checked`
         : null;
   renderProfiles();
   renderCanvas();
@@ -125,6 +125,8 @@ function stageMessage(text) {
 }
 
 const numbered = () => S.monitors.map((m, i) => ({ ...m, n: i + 1 }));
+/** Écran qui porte l'image : lui-même, ou celui qu'il duplique. Sa tuile le représente. */
+const sourceOf = (key) => S.monitors.find((m) => m.key === key)?.mirror_of ?? key;
 
 function renderCanvas() {
   const canvas = $("#canvas");
@@ -172,10 +174,7 @@ function renderCanvas() {
     oy: (box.height - bottom - bh * k) / 2,
   };
 
-  for (const m of act) {
-    const mirrors = all.filter((o) => o.mirror_of === m.key).map((o) => o.name);
-    canvas.append(tile(m, mirrors, act));
-  }
+  for (const m of act) canvas.append(tile(m, all.filter((o) => o.mirror_of === m.key), act));
 }
 
 function place(node, x, y, w, h) {
@@ -190,20 +189,22 @@ function moveTo(m, others, to) {
   return run("set_positions", { list });
 }
 
+/** Tuile d'un écran ; des écrans dupliqués partagent la leur, numérotée « 1 | 2 » comme dans Windows. */
 function tile(m, mirrors, act) {
-  const name = [m.name, ...mirrors].join(" + ");
+  const group = [m, ...mirrors];
+  const name = group.map((o) => o.name).join(" + ");
   const b = el(
     "button",
     {
       class: "tile" + (act.length < 2 ? " single" : ""),
-      "aria-pressed": String(m.key === sel),
-      "aria-label": t("Écran {0}, {1}, {2} par {3}", m.n, name, m.w, m.h) + (m.primary ? t(", principal") : ""),
+      "aria-pressed": String(m.key === sourceOf(sel)),
+      "aria-label": t("Écran {0}, {1}, {2} par {3}", group.map((o) => o.n).join(t(" et ")), name, m.w, m.h) + (m.primary ? t(", principal") : ""),
       "aria-keyshortcuts": act.length > 1 ? "ArrowLeft ArrowRight ArrowUp ArrowDown" : null,
       // Les petites tuiles n'affichent que leur numéro : l'infobulle garde le reste lisible.
       title: `${name}\n${m.w} × ${m.h} · ${m.hz} Hz`,
       "data-key": m.key,
     },
-    el("span", { class: "num", text: m.n }),
+    el("span", { class: "num", text: group.map((o) => o.n).join(" | ") }),
     el("span", { class: "name", text: name }),
     el("span", { class: "res", text: `${m.w} × ${m.h} · ${m.hz} Hz` }),
     m.primary && el("span", { class: "taskbar", "aria-hidden": "true" }),
@@ -211,8 +212,9 @@ function tile(m, mirrors, act) {
   place(b, m.x, m.y, m.w, m.h);
   b.style.setProperty("--num", `${Math.round(Math.max(16, Math.min(56, m.h * view.k * 0.3)))}px`);
 
+  // Un clic sur la tuile d'écrans dupliqués garde celui déjà choisi parmi eux.
   b.addEventListener("click", () => {
-    if (!b.dataset.dragged) select(m.key);
+    if (!b.dataset.dragged && sourceOf(sel) !== m.key) select(m.key);
   });
   if (act.length < 2) return b;
   const others = act.filter((o) => o.key !== m.key);
@@ -268,7 +270,8 @@ function tile(m, mirrors, act) {
 /** Sélection sans reconstruire le canevas : le focus clavier reste en place. */
 function select(key) {
   sel = key;
-  for (const t of document.querySelectorAll("[data-key]")) t.setAttribute("aria-pressed", String(t.dataset.key === key));
+  const src = sourceOf(key);
+  for (const t of document.querySelectorAll("[data-key]")) t.setAttribute("aria-pressed", String(t.dataset.key === key || t.dataset.key === src));
   renderInspector();
 }
 
@@ -288,6 +291,8 @@ function renderInspector() {
   const m = all.find((x) => x.key === sel);
   if (!m) return;
   const actives = all.filter((x) => x.active).length;
+  const src = sourceOf(m.key);
+  const group = all.filter((x) => x.active && (x.key === src || x.mirror_of === src));
 
   const meta = [el("span", { text: m.connector })];
   if (m.native) meta.push(el("span", { class: "dot", text: t("{0} × {1} natif", m.native[0], m.native[1]) }));
@@ -314,6 +319,7 @@ function renderInspector() {
         { class: "insp-title" },
         el("h2", {}, el("span", { class: "insp-num", text: m.n }), m.name),
         el("p", { class: "meta" }, ...meta),
+        group.length > 1 && memberPicker(group, m),
       ),
       el(
         "div",
@@ -331,9 +337,11 @@ function renderInspector() {
     box.append(el("p", { class: "note", text: t("Cet écran est branché mais n'affiche rien. Activez-le pour régler sa résolution et sa place.") }));
     return;
   }
-  if (m.mirror_of) {
-    const src = all.find((x) => x.key === m.mirror_of);
-    box.append(el("p", { class: "note", text: t("Affiche la même image que {0}.", src?.name ?? t("un autre écran")) }));
+  // Un écran dupliqué suit l'image de sa source : seuls sa luminosité et son HDR lui sont propres.
+  const own = !m.mirror_of;
+  if (!own) {
+    const name = all.find((x) => x.key === src)?.name ?? t("un autre écran");
+    box.append(el("p", { class: "note", text: t("Affiche la même image que {0}. Résolution, mise à l'échelle et orientation se règlent depuis celui-ci.", name) }));
   }
 
   const cur = m.modes.find((md) => md.w === m.w && md.h === m.h);
@@ -360,40 +368,42 @@ function renderInspector() {
 
   const rows = [
     m.brightness != null && row(t("Luminosité"), m.soft ? t("Logicielle : cet écran ne répond pas en DDC/CI, un voile l'assombrit") : null, brightnessSlider(m), true),
-    row(t("Résolution"), null, resSelect),
-    m.scale && row(t("Mise à l'échelle"), t("Taille du texte et des fenêtres"), scaleSelect(m)),
-    row(
-      t("Fréquence"),
-      t("Images par seconde (Hz)"),
-      el(
-        "div",
-        { class: "chips", role: "radiogroup", "aria-label": t("Fréquence de rafraîchissement") },
-        ...(cur?.rates ?? [m.hz]).map((hz) =>
-          el(
-            "label",
-            { class: "chip" },
-            el("input", {
-              type: "radio",
-              name: "hz",
-              value: hz,
-              checked: hz === m.hz,
-              onchange: () => run("set_mode", { key: m.key, w: m.w, h: m.h, hz }),
-            }),
-            el("span", { text: hz }),
+    own && row(t("Résolution"), null, resSelect),
+    own && m.scale && row(t("Mise à l'échelle"), t("Taille du texte et des fenêtres"), scaleSelect(m)),
+    own &&
+      row(
+        t("Fréquence"),
+        t("Images par seconde (Hz)"),
+        el(
+          "div",
+          { class: "chips", role: "radiogroup", "aria-label": t("Fréquence de rafraîchissement") },
+          ...(cur?.rates ?? [m.hz]).map((hz) =>
+            el(
+              "label",
+              { class: "chip" },
+              el("input", {
+                type: "radio",
+                name: "hz",
+                value: hz,
+                checked: hz === m.hz,
+                onchange: () => run("set_mode", { key: m.key, w: m.w, h: m.h, hz }),
+              }),
+              el("span", { text: hz }),
+            ),
           ),
         ),
+        true,
       ),
-      true,
-    ),
-    row(
-      t("Orientation"),
-      null,
-      el(
-        "select",
-        { id: "insp-orient", "aria-label": t("Orientation"), onchange: (e) => run("set_rotation", { key: m.key, deg: Number(e.target.value) }) },
-        ...ORIENT.map(([deg, label]) => el("option", { value: deg, selected: deg === m.rotation, text: label })),
+    own &&
+      row(
+        t("Orientation"),
+        null,
+        el(
+          "select",
+          { id: "insp-orient", "aria-label": t("Orientation"), onchange: (e) => run("set_rotation", { key: m.key, deg: Number(e.target.value) }) },
+          ...ORIENT.map(([deg, label]) => el("option", { value: deg, selected: deg === m.rotation, text: label })),
+        ),
       ),
-    ),
     m.hdr !== null &&
       row(
         "HDR",
@@ -413,6 +423,31 @@ function renderInspector() {
   const narrow = rows.filter((r) => !r.classList.contains("wide"));
   if (narrow.length % 2) narrow.at(-1).classList.add("wide");
   box.append(el("div", { class: "settings" }, ...rows));
+}
+
+/** Écrans dupliqués : une tuile pour tous, on choisit ici celui à régler. */
+function memberPicker(group, m) {
+  return el(
+    "div",
+    { class: "segmented members", role: "radiogroup", "aria-label": t("Écrans dupliqués") },
+    ...group.map((x) =>
+      el(
+        "label",
+        {},
+        el("input", {
+          type: "radio",
+          name: "member",
+          value: x.key,
+          checked: x.key === m.key,
+          onchange: () => {
+            select(x.key);
+            $('input[name="member"]:checked')?.focus();
+          },
+        }),
+        el("span", {}, el("b", { text: x.n }), x.name),
+      ),
+    ),
+  );
 }
 
 function isNative(m, md) {
@@ -488,7 +523,8 @@ function setEnabled(m, on) {
 const CAPS = {}; // clé d'écran -> "loading" ou message d'erreur de la lecture des capacités
 let capsRunning = false;
 
-const ddcCapable = (m) => m.active && !m.internal && !m.mirror_of;
+// Un écran dupliqué a ses propres réglages DDC/CI : seule l'image est commune.
+const ddcCapable = (m) => m.active && !m.internal;
 const hasCaps = (sc) => !!sc && Object.keys(sc.caps ?? {}).length > 0;
 const safeId = (key) => key.replace(/[^\w-]/g, "");
 let ddcStale = false; // vue à reconstruire une fois la saisie terminée
@@ -542,7 +578,7 @@ function renderDdc() {
   ddcStale = false;
   $("#off-mode").value = S.panel.off;
   $("#power-signal").value = String(S.panel.power);
-  const mons = S.monitors.filter((m) => m.active && !m.mirror_of);
+  const mons = S.monitors.filter((m) => m.active);
   $("#ddc-screens").replaceChildren(...mons.flatMap(ddcScreen));
 }
 
@@ -1135,7 +1171,9 @@ function renderSettings() {
     $(id).replaceChildren(...(keys ? keys.map((k) => el("kbd", { text: k })) : [t("Choisir…")]));
     $(id).setAttribute("aria-label", keys ? t("Raccourci pour {0} : {1}", what, keys.join("+")) : t("Choisir un raccourci pour {0}", what));
   }
-  for (const o of $("#step").options) o.textContent = `${o.value}${NNBSP}%`;
+  for (const o of document.querySelectorAll("#step option, #id-lit option[value]:not([value='']), #id-dim option")) o.textContent = `${o.value}${NNBSP}%`;
+  $("#id-lit").value = S.identify.lit == null ? "" : String(S.identify.lit);
+  $("#id-dim").value = String(S.identify.dim);
   $("#step").value = String(S.panel.step);
   const rows = [
     ...S.profiles.filter((p) => p.hotkey).map((p) => [t("Appliquer {0}, partout dans Windows", p.name), keyParts(p.hotkey)]),
@@ -1473,6 +1511,9 @@ $("#autostart").addEventListener("change", (e) => run("set_autostart", { on: e.t
 const saveConfirm = () => run("set_confirm", { on: $("#confirm-on").checked, secs: Number($("#confirm-secs").value) });
 $("#confirm-on").addEventListener("change", saveConfirm);
 $("#confirm-secs").addEventListener("change", saveConfirm);
+const saveIdentify = () => run("set_identify", { lit: $("#id-lit").value === "" ? null : Number($("#id-lit").value), dim: Number($("#id-dim").value) });
+$("#id-lit").addEventListener("change", saveIdentify);
+$("#id-dim").addEventListener("change", saveIdentify);
 $("#topology").addEventListener("change", (e) => run("set_topology", { kind: e.target.value }));
 
 document.addEventListener("keydown", (e) => {

@@ -183,18 +183,54 @@ pub(crate) fn save_place(app: &AppHandle, w: &WebviewWindow) {
     let _ = s.save();
 }
 
+/// Durée d'affichage des numéros.
+const ID_SHOW: Duration = Duration::from_millis(2800);
+/// Des écrans dupliqués se relaient sur leur carte commune : chacun ce temps-là, fondu compris.
+const ID_STEP: Duration = Duration::from_millis(2500);
+
+/// Carte d'identification d'un écran et de ceux qui le dupliquent (même image, même
+/// carte). `at` : l'écran désigné, qui reste lumineux pendant que les autres s'assombrissent.
+#[derive(Serialize)]
+struct Card {
+    #[serde(skip)]
+    label: String,
+    nums: Vec<usize>,
+    names: Vec<String>,
+    res: String,
+    at: Option<usize>,
+    /// Clé de chaque écran et luminosité matérielle à rétablir, s'il en a une.
+    #[serde(skip)]
+    levels: Vec<(String, Option<u32>)>,
+}
+
 /// Affiche le numéro de chaque écran actif, comme le bouton « Identifier » de Windows.
 pub(crate) fn identify(app: &AppHandle) -> Res<()> {
+    // Une à la fois : la suivante prendrait un écran assombri pour réglé ainsi.
+    static SHOWING: AtomicBool = AtomicBool::new(false);
     let mons = display::monitors()?;
-    let mut labels = Vec::new();
+    if SHOWING.swap(true, Ordering::SeqCst) {
+        return Ok(());
+    }
+    let mut cards = Vec::new();
+    let mut failed = Ok(());
     for (i, m) in mons.iter().enumerate().filter(|(_, m)| m.active && m.mirror_of.is_none()) {
-        let label = format!("identify{i}");
-        if let Some(w) = app.get_webview_window(&label) {
+        let group: Vec<(usize, &display::Monitor)> =
+            mons.iter().enumerate().filter(|(_, o)| o.key == m.key || o.mirror_of.as_ref() == Some(&m.key)).collect();
+        // Un voile logiciel couvrirait l'image commune : seule la luminosité matérielle distingue.
+        let levels: Vec<(String, Option<u32>)> = group.iter().map(|(_, o)| (o.key.clone(), o.brightness.filter(|_| !o.soft))).collect();
+        let card = Card {
+            label: format!("identify{i}"),
+            nums: group.iter().map(|(j, _)| j + 1).collect(),
+            names: group.iter().map(|(_, o)| o.name.clone()).collect(),
+            res: format!("{} × {}", m.w, m.h),
+            at: (levels.len() > 1 && levels.iter().any(|l| l.1.is_some())).then_some(0),
+            levels,
+        };
+        if let Some(w) = app.get_webview_window(&card.label) {
             let _ = w.destroy();
         }
-        let data = serde_json::json!({ "n": i + 1, "name": m.name, "res": format!("{} × {}", m.w, m.h) });
-        let w = window(app, &label, "identify.html")
-            .initialization_script(format!("window.ID = {data};"))
+        let built = window(app, &card.label, "identify.html")
+            .initialization_script(format!("window.ID = {};", serde_json::to_string(&card).unwrap_or_default()))
             .title("MonitorMG")
             .decorations(false)
             .transparent(true)
@@ -205,20 +241,126 @@ pub(crate) fn identify(app: &AppHandle) -> Res<()> {
             .resizable(false)
             .visible(false)
             .inner_size(300.0, 220.0)
-            .build()
-            .map_err(|e| e.to_string())?;
-        let _ = w.set_position(PhysicalPosition::new(m.x + 48, m.y + 48));
-        let _ = w.show();
-        labels.push(label);
+            .build();
+        match built {
+            Ok(w) => {
+                let _ = w.set_position(PhysicalPosition::new(m.x + 48, m.y + 48));
+                let _ = w.show();
+                cards.push(card);
+            }
+            Err(e) => {
+                failed = Err(e.to_string());
+                break;
+            }
+        }
     }
+    let look = store(app).identify;
     let app = app.clone();
     thread::spawn(move || {
-        thread::sleep(Duration::from_millis(2800));
-        for l in labels {
-            if let Some(w) = app.get_webview_window(&l) {
+        let start = Instant::now();
+        relay(&app, &mut cards, look);
+        thread::sleep(ID_SHOW.saturating_sub(start.elapsed()));
+        for c in &cards {
+            if let Some(w) = app.get_webview_window(&c.label) {
                 let _ = w.destroy();
             }
         }
+        SHOWING.store(false, Ordering::SeqCst);
     });
-    Ok(())
+    failed
+}
+
+/// Écrans dupliqués : chacun à son tour est désigné sur la carte, à la luminosité choisie
+/// dans les paramètres (`look`), pendant que les autres s'assombrissent. À la fin, chacun
+/// retrouve la sienne.
+fn relay(app: &AppHandle, cards: &mut [Card], look: store::Identify) {
+    let steps = cards.iter().filter(|c| c.at.is_some()).map(|c| c.nums.len()).max().unwrap_or(0);
+    // Luminosité d'origine de chaque écran concerné, et celle qu'il a maintenant.
+    let orig: Vec<(String, u32)> =
+        cards.iter().filter(|c| c.at.is_some()).flat_map(|c| &c.levels).filter_map(|(k, l)| Some((k.clone(), (*l)?))).collect();
+    let mut now: BTreeMap<String, u32> = orig.iter().cloned().collect();
+    for step in 0..steps {
+        let started = Instant::now();
+        let mut to = Vec::new();
+        for c in cards.iter_mut().filter(|c| c.at.is_some()) {
+            let at = step % c.nums.len();
+            if step > 0 {
+                c.at = Some(at);
+                if let (Some(w), Ok(js)) = (app.get_webview_window(&c.label), serde_json::to_string(&*c)) {
+                    let _ = w.eval(format!("show({js})"));
+                }
+            }
+            // L'écran désigné d'abord : jamais tout le groupe dans le noir.
+            for i in std::iter::once(at).chain((0..c.levels.len()).filter(|&i| i != at)) {
+                if let (key, Some(level)) = &c.levels[i] {
+                    to.push((key.clone(), if i == at { look.lit.unwrap_or(*level) } else { look.dim }));
+                }
+            }
+        }
+        fade(&mut now, &to);
+        thread::sleep(ID_STEP.saturating_sub(started.elapsed()));
+    }
+    fade(&mut now, &orig);
+}
+
+/// Un saut de luminosité surprend l'œil : quelques paliers l'adoucissent. Les écritures
+/// DDC/CI passent une à une par le verrou du bus, environ 50 ms chacune.
+/// ponytail: durée fixe ; en faire un réglage si elle paraît lente ou brusque sur certains écrans.
+const FADE: Duration = Duration::from_millis(700);
+const FADE_STEPS: u32 = 6;
+
+/// Mène chaque écran de sa luminosité actuelle (`now`) à celle visée, ensemble et par paliers.
+fn fade(now: &mut BTreeMap<String, u32>, to: &[(String, u32)]) {
+    let moves: Vec<(&str, u32, u32)> =
+        to.iter().filter_map(|(k, t)| now.get(k).filter(|&&f| f != *t).map(|&f| (k.as_str(), f, *t))).collect();
+    if moves.is_empty() {
+        return;
+    }
+    for n in 1..=FADE_STEPS {
+        let tick = Instant::now();
+        for &(key, from, to) in &moves {
+            let v = tier(from, to, n);
+            if n == FADE_STEPS {
+                if settle(key, v) {
+                    now.insert(key.into(), v);
+                }
+            } else if v != tier(from, to, n - 1) {
+                let _ = display::set_brightness(key, v);
+            }
+        }
+        if n < FADE_STEPS {
+            thread::sleep((FADE / FADE_STEPS).saturating_sub(tick.elapsed()));
+        }
+    }
+}
+
+/// Palier `n` sur `FADE_STEPS` d'un fondu de `from` à `to`.
+fn tier(from: u32, to: u32, n: u32) -> u32 {
+    let (f, t) = (i64::from(from), i64::from(to));
+    (f + (t - f) * i64::from(n) / i64::from(FADE_STEPS)) as u32
+}
+
+/// Le dernier palier compte : un raté du bus DDC/CI laisserait l'écran sombre. Quelques essais.
+fn settle(key: &str, level: u32) -> bool {
+    for _ in 0..3 {
+        if display::set_brightness(key, level).is_ok() {
+            return true;
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fade_tiers_end_exactly_on_target() {
+        let tiers = |from, to| (0..=FADE_STEPS).map(|n| tier(from, to, n)).collect::<Vec<_>>();
+        assert_eq!(tiers(60, 0), [60, 50, 40, 30, 20, 10, 0]);
+        assert_eq!(tiers(0, 60), [0, 10, 20, 30, 40, 50, 60]);
+        // Petit écart : des paliers se répètent (non renvoyés), le dernier tombe juste.
+        assert_eq!(tiers(19, 14), [19, 19, 18, 17, 16, 15, 14]);
+    }
 }

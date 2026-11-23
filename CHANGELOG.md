@@ -1,5 +1,29 @@
 # Journal des modifications
 
+## 2.2.4
+
+Correction : en mode Dupliquer, seul le premier écran se réglait.
+
+### Écrans dupliqués
+
+- La tuile commune est numérotée « 1 | 2 », comme dans Windows. Un sélecteur sous le nom de l'écran choisit celui à régler.
+- Chaque écran dupliqué garde sa luminosité et son HDR. Résolution, mise à l'échelle et orientation se règlent depuis l'écran source, qui porte l'image.
+- La vue DDC/CI et le panneau de la zone de notification affichent tous les écrans dupliqués, avec leurs propres réglages.
+- Chaque écran reçoit désormais ses propres commandes DDC/CI. Avant, l'association reposait sur un ordre supposé et pouvait régler le mauvais écran.
+
+### Identification
+
+- Des écrans dupliqués partagent une carte « 1 | 2 ». Ils sont désignés à tour de rôle, 2,5 s chacun : l'écran désigné se distingue par sa luminosité, les autres s'assombrissent, puis chacun retrouve son niveau.
+- La luminosité passe d'un niveau à l'autre en fondu, en 0,7 s, plutôt que d'un coup.
+- Paramètres, « Identification » : luminosité de l'écran désigné (inchangée par défaut, ou 25 à 100 %) et des autres écrans (0 % par défaut, jusqu'à 50 %).
+- Une seule identification à la fois : un clic pendant l'affichage est ignoré, il prendrait un écran assombri pour son vrai niveau.
+
+### Technique
+
+- `display::targets` range les écrans dupliqués dans l'ordre de leurs poignées physiques (`children`).
+- Nouvelle commande `set_identify`, réglage `identify` dans `config.json`.
+- 47 tests Rust, 5 tests de l'interface.
+
 ## 2.2.3
 
 Correction : un profil qui laisse les écrans noirs pouvait bloquer l'affichage, même après avoir rebranché les écrans.

@@ -143,6 +143,7 @@ struct View {
     topology: Option<&'static str>,
     autostart: bool,
     confirm: store::Confirm,
+    identify: store::Identify,
     accent: (String, String),
     undo: Option<String>,
     version: &'static str,
@@ -184,7 +185,7 @@ async fn state(app: AppHandle) -> Res<View> {
     let monitors = display::monitors()?;
     read_brightness(&app, false);
     let sig = display::signature().unwrap_or_default();
-    let (profiles, confirm, hotkeys, panel, mut screens, schedule, updates) = {
+    let (profiles, confirm, identify, hotkeys, panel, mut screens, schedule, updates) = {
         let s = store(&app);
         let views = s
             .profiles
@@ -203,7 +204,7 @@ async fn state(app: AppHandle) -> Res<View> {
                     .collect(),
             })
             .collect();
-        (views, s.confirm, [s.off_hotkey.clone(), s.up_hotkey.clone(), s.down_hotkey.clone()], s.panel.clone(), s.screens.clone(), s.schedule.clone(), s.updates)
+        (views, s.confirm, s.identify, [s.off_hotkey.clone(), s.up_hotkey.clone(), s.down_hotkey.clone()], s.panel.clone(), s.screens.clone(), s.schedule.clone(), s.updates)
     };
     let [off_hotkey, up_hotkey, down_hotkey] = hotkeys;
     for m in &monitors {
@@ -217,6 +218,7 @@ async fn state(app: AppHandle) -> Res<View> {
         topology: display::topology(),
         autostart: app.autolaunch().is_enabled().unwrap_or(false),
         confirm,
+        identify,
         accent: store::accent(),
         undo,
         version: VERSION,
@@ -703,6 +705,14 @@ async fn set_tray_icon(app: AppHandle, name: String) -> Res<()> {
 async fn set_confirm(app: AppHandle, on: bool, secs: u64) -> Res<()> {
     save_with(&app, |s| {
         s.confirm = store::Confirm { on, secs: secs.clamp(5, 120) };
+        Ok(())
+    })
+}
+
+#[tauri::command]
+async fn set_identify(app: AppHandle, lit: Option<u32>, dim: u32) -> Res<()> {
+    save_with(&app, |s| {
+        s.identify = store::Identify { lit, dim }.checked();
         Ok(())
     })
 }
@@ -1203,6 +1213,7 @@ fn main() {
             profile_shortcut,
             set_autostart,
             set_confirm,
+            set_identify,
             set_tray_icon,
         ])
         .setup(move |app| {

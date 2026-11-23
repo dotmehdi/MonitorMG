@@ -18,6 +18,7 @@ use windows::Win32::System::Com::{
 };
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::System::Wmi::*;
+use windows::Win32::UI::WindowsAndMessaging::EDD_GET_DEVICE_INTERFACE_NAME;
 
 pub type Res<T> = Result<T, String>;
 
@@ -1038,24 +1039,42 @@ fn targets() -> Res<Vec<Target>> {
     let _ = unsafe { EnumDisplayMonitors(None, None, Some(each), LPARAM(&mut gdi as *mut _ as isize)) };
     let cfg = query(false)?;
     let mut keys = Keys::default();
-    Ok(cfg
+    let mut kids: HashMap<Vec<u16>, Vec<String>> = HashMap::new();
+    let mut out: Vec<(Target, usize)> = cfg
         .paths
         .iter()
         .filter_map(|p| {
-            let h = gdi_name(p.sourceInfo.adapterId, p.sourceInfo.id).and_then(|n| gdi.get(&wstr(&n)).copied())?;
+            let name = gdi_name(p.sourceInfo.adapterId, p.sourceInfo.id)?;
+            let h = gdi.get(&wstr(&name)).copied()?;
             let t = &p.targetInfo;
-            let wmi = is_internal(t.outputTechnology).then(|| {
-                info::<DISPLAYCONFIG_TARGET_DEVICE_NAME>(GET_TARGET_NAME, t.adapterId, t.id)
-                    .map_or_else(String::new, |n| wmi_instance(&wstr(&n.monitorDevicePath)))
-            });
-            Some((keys.of(p), wmi, h))
+            let path = info::<DISPLAYCONFIG_TARGET_DEVICE_NAME>(GET_TARGET_NAME, t.adapterId, t.id).map_or_else(String::new, |n| wstr(&n.monitorDevicePath));
+            let wmi = is_internal(t.outputTechnology).then(|| wmi_instance(&path));
+            let rank = kids.entry(name).or_insert_with_key(|n| children(n)).iter().position(|c| c.eq_ignore_ascii_case(&path));
+            Some(((keys.of(p), wmi, h), rank.unwrap_or(usize::MAX)))
         })
-        .collect())
+        .collect();
+    // Écrans dupliqués : `with_ddc` les associe dans l'ordre à leurs poignées physiques.
+    out.sort_by_key(|o| o.1);
+    Ok(out.into_iter().map(|o| o.0).collect())
+}
+
+/// Écrans actifs d'un moniteur Windows (\\.\DISPLAY1) : plusieurs s'il est dupliqué.
+/// dxva2 rend leurs poignées physiques dans cet ordre, qui n'est pas celui des chemins CCD.
+fn children(gdi: &[u16]) -> Vec<String> {
+    let mut out = Vec::new();
+    for i in 0.. {
+        let mut d = DISPLAY_DEVICEW { cb: size_of::<DISPLAY_DEVICEW>() as u32, ..Default::default() };
+        if !unsafe { EnumDisplayDevicesW(PCWSTR(gdi.as_ptr()), i, &mut d, EDD_GET_DEVICE_INTERFACE_NAME) }.as_bool() {
+            return out;
+        }
+        if d.StateFlags.contains(DISPLAY_DEVICE_ACTIVE) {
+            out.push(wstr(&d.DeviceID));
+        }
+    }
+    out
 }
 
 /// Appelle `f` pour chaque écran externe actif, avec sa poignée DDC/CI.
-/// ponytail: les écrans dupliqués sont supposés dans l'ordre des chemins CCD ;
-/// comparer les descriptions des écrans physiques si un clone règle le mauvais écran.
 fn with_ddc(targets: &[Target], mut f: impl FnMut(&mut BTreeMap<String, u32>, &str, HANDLE)) {
     for (i, (_, _, h)) in targets.iter().enumerate() {
         if targets.iter().position(|t| t.2 == *h) != Some(i) {
@@ -1802,6 +1821,7 @@ mod tests {
             let _ = topology();
         });
         time("capture", &|| drop(capture()));
+        time("targets", &|| drop(targets()));
         time("modes (pilote)", &|| {
             for p in &query(false).unwrap().paths {
                 let gdi = gdi_name(p.sourceInfo.adapterId, p.sourceInfo.id).unwrap();
@@ -1844,6 +1864,12 @@ mod tests {
             let n: DISPLAYCONFIG_TARGET_DEVICE_NAME = info(GET_TARGET_NAME, p.targetInfo.adapterId, p.targetInfo.id).unwrap();
             let id = wmi_instance(&wstr(&n.monitorDevicePath));
             println!("WMI {id}: {:?}", wmi_brightness(id.clone()));
+            // Chaque écran actif se retrouve parmi ceux de son moniteur Windows : c'est
+            // ce qui associe un écran dupliqué à sa propre poignée DDC/CI.
+            let gdi = gdi_name(p.sourceInfo.adapterId, p.sourceInfo.id).unwrap();
+            let kids = children(&gdi);
+            println!("{} : {kids:?}", wstr(&gdi));
+            assert!(kids.iter().any(|k| k.eq_ignore_ascii_case(&wstr(&n.monitorDevicePath))), "{} absent de {kids:?}", wstr(&n.monitorDevicePath));
         }
         // Chaque écran dont la luminosité se lit doit être joignable un par un, pas
         // seulement le premier (régression de la 2.0.0 avec deux écrans externes).

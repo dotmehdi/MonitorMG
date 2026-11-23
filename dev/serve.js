@@ -1,5 +1,5 @@
 // Aperçu navigateur de l'UI avec un faux backend Tauri, sans toucher aux écrans.
-// Usage : node dev/serve.js ui 4517  puis  http://127.0.0.1:4517/?s=dock  (ou ?s=desk, &empty=1, &lang=en)
+// Usage : node dev/serve.js ui 4517  puis  http://127.0.0.1:4517/?s=dock  (ou ?s=desk, ?s=clone, &empty=1, &lang=en)
 const http = require("http");
 const fs = require("fs");
 const path = require("path");

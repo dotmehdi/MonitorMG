@@ -1010,6 +1010,20 @@ kbd {
   font-variant-numeric: tabular-nums;
 }
 
+/* Écrans dupliqués : une tuile pour tous, on choisit sous le titre celui à régler. */
+.members {
+  justify-self: start;
+  flex-wrap: wrap;
+  max-width: 100%;
+  margin-top: var(--s2);
+}
+
+.members b {
+  margin-right: var(--s2);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 .meta {
   display: flex;
   flex-wrap: wrap;
@@ -1529,6 +1543,26 @@ option::checkmark {
 .id-num {
   font: 600 112px/1 var(--font-display);
   font-variant-numeric: tabular-nums;
+}
+
+/* Écrans dupliqués : « 1 | 2 », comme Windows ; l'écran désigné garde son numéro plein. */
+.id-num:has(span + span) {
+  font-size: 88px;
+}
+
+.id-num:has(span + span + span) {
+  font-size: 64px;
+}
+
+.id-num span + span::before {
+  content: "|";
+  margin: 0 0.12em;
+  color: var(--text-3);
+  font-weight: 400;
+}
+
+.id-num .off {
+  color: var(--text-3);
 }
 
 .id-name {

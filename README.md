@@ -37,8 +37,8 @@ Les captures sont prises sur l'aperçu de développement (`dev/serve.js`), avec 
 
 | Édition | Pour qui | Comment |
 | --- | --- | --- |
-| Installateur `MonitorMG-2.2.3-setup.exe` | La plupart des utilisateurs | Double-cliquez. Aucun droit administrateur n'est demandé ; MonitorMG s'installe pour votre compte et apparaît dans le menu Démarrer. |
-| Portable `MonitorMG-2.2.3-portable.zip` | Clé USB, poste sans installation | Décompressez dans un dossier personnel et lancez `MonitorMG.exe`. Profils et journal restent dans le dossier `data`, à côté. |
+| Installateur `MonitorMG-2.2.4-setup.exe` | La plupart des utilisateurs | Double-cliquez. Aucun droit administrateur n'est demandé ; MonitorMG s'installe pour votre compte et apparaît dans le menu Démarrer. |
+| Portable `MonitorMG-2.2.4-portable.zip` | Clé USB, poste sans installation | Décompressez dans un dossier personnel et lancez `MonitorMG.exe`. Profils et journal restent dans le dossier `data`, à côté. |
 
 Prérequis : Microsoft Edge WebView2, déjà présent sur Windows 11. L'installateur l'ajoute si besoin ; pour l'édition portable, [téléchargez-le ici](https://go.microsoft.com/fwlink/p/?LinkId=2124703).
 

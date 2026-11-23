@@ -108,7 +108,8 @@ function choiceRow(m, sc, code) {
 
 const screenOf = (m) => S.screens[m.key] ?? {};
 const nameOf = (m) => screenOf(m).name || m.name;
-const shown = (m) => m.active && !m.mirror_of && !screenOf(m).hidden;
+// Écrans dupliqués compris : même image, mais chacun sa luminosité.
+const shown = (m) => m.active && !screenOf(m).hidden;
 
 function monitorBlock(m, withBrightness) {
   const sc = screenOf(m);

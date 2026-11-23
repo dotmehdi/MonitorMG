@@ -38,6 +38,8 @@ Les capacités d'un écran (1 à 3 s de lecture) sont lues une fois depuis la vu
 
 Certains écrans renvoient la réponse précédente pour un code qu'ils ne savent pas lire (BenQ EW3270U) : `read_codes` vérifie une réponse identique à la précédente en relisant le code après un code témoin.
 
+En mode Dupliquer, plusieurs écrans partagent un même moniteur Windows (`\\.\DISPLAY1`) et `dxva2` rend leurs poignées physiques dans l'ordre de `EnumDisplayDevices` sur ce moniteur, pas dans celui des chemins CCD. `targets()` trie donc les écrans selon leur rang parmi les enfants de leur moniteur (`children`), et `with_ddc` les associe dans cet ordre à leurs poignées : chacun reçoit sa propre luminosité. L'identification les désigne à tour de rôle (`views::relay`) : l'écran désigné et les autres prennent les luminosités réglées dans les paramètres (`store::Identify`), puis chacun retrouve son niveau. Chaque changement passe par un fondu de quelques paliers (`fade`), écrits ensemble, le désigné en premier ; seul le dernier palier est réessayé en cas de raté. Un écran à luminosité logicielle n'est pas assombri, son voile couvrirait l'image commune.
+
 L'écran intégré d'un portable passe par WMI, avec une connexion gardée dans un thread COM dédié.
 
 Le panneau (`flyout`) est créé à chaque ouverture et détruit dès qu'il perd le focus ; sa page demande sa hauteur à `flyout_fit`, qui l'ancre en bas à droite de son écran.
