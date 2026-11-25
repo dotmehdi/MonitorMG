@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.28.0.schema.json
 PackageIdentifier: dotmehdi.MonitorMG
-PackageVersion: 2.3.0
+PackageVersion: 2.3.1
 PackageLocale: fr-FR
 Publisher: MonitorMG
 PublisherUrl: https://github.com/dotmehdi/MonitorMG
@@ -23,6 +23,6 @@ Tags:
   - luminosité
   - multi-écrans
   - écran
-ReleaseNotesUrl: https://github.com/dotmehdi/MonitorMG/releases/tag/v2.3.0
+ReleaseNotesUrl: https://github.com/dotmehdi/MonitorMG/releases/tag/v2.3.1
 ManifestType: locale
 ManifestVersion: 1.28.0

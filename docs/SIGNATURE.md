@@ -62,9 +62,9 @@ L'offre de Microsoft (~10 $/mois) serait idéale, mais la validation d'identité
 
 `winget install MonitorMG` installe sans navigateur ni SmartScreen (winget vérifie l'empreinte SHA-256 du manifeste). C'est le canal « sans encombre » le plus simple pour les utilisateurs techniques, signature ou pas.
 
-Des manifestes prêts pour la version 2.3.0, avec les vraies empreintes, sont dans [`dev/winget/`](../dev/winget/) (schéma 1.28, `winget validate --manifest dev/winget`).
+Des manifestes prêts pour la version 2.3.1, avec les vraies empreintes, sont dans [`dev/winget/`](../dev/winget/) (schéma 1.28, `winget validate --manifest dev/winget`).
 
-Première soumission : [microsoft/winget-pkgs#486724](https://github.com/microsoft/winget-pkgs/pull/486724), ouverte pour la 2.2.4 puis passée à la 2.3.0 avant validation, depuis le fork `dotmehdi/winget-pkgs` (fichiers sous `manifests/d/dotmehdi/MonitorMG/2.3.0/`). À faire une fois par le titulaire du compte : accepter le contrat de contributeur Microsoft en commentant la PR comme le demande le robot. Les modérateurs peuvent demander des ajustements (identifiant du paquet, champs ARP).
+Première soumission : [microsoft/winget-pkgs#486724](https://github.com/microsoft/winget-pkgs/pull/486724), ouverte pour la 2.2.4 puis passée à la 2.3.0 avant validation, depuis le fork `dotmehdi/winget-pkgs` (fichiers sous `manifests/d/dotmehdi/MonitorMG/2.3.0/`). À faire une fois par le titulaire du compte : accepter le contrat de contributeur Microsoft en commentant la PR comme le demande le robot. Les modérateurs peuvent demander des ajustements (identifiant du paquet, champs ARP). La 2.3.1 est sortie pendant la revue : laissée de côté pour ne pas relancer la validation, elle sera proposée en mise à jour une fois la PR acceptée.
 
 Pour chaque version suivante : mêmes fichiers sous `manifests/d/dotmehdi/MonitorMG/X.Y.Z/`, version, adresse et empreinte à jour, PR intitulée « Update: dotmehdi.MonitorMG to X.Y.Z » ; ou `wingetcreate update dotmehdi.MonitorMG --urls <url du setup.exe> --version X.Y.Z --submit`.
 
