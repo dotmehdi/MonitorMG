@@ -8,10 +8,11 @@ use std::collections::{hash_map::Entry, BTreeMap, BTreeSet, HashMap, HashSet};
 use std::mem::size_of;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Mutex, MutexGuard, OnceLock, PoisonError};
-use windows::core::{w, BOOL, BSTR, HRESULT, PCWSTR};
+use windows::core::{w, BOOL, BSTR, HRESULT, HSTRING, PCWSTR};
 use windows::Win32::Devices::Display::*;
 use windows::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, HANDLE, LPARAM, LUID, POINTL, RECT};
 use windows::Win32::Graphics::Gdi::*;
+use windows::Win32::System::Registry::{RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_BINARY};
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CoSetProxyBlanket, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, EOAC_NONE,
     RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE,
@@ -573,12 +574,14 @@ pub fn monitors() -> Res<Vec<Monitor>> {
     Ok(out)
 }
 
-/// Écran branché, actif ou non : sa clé, son modèle et son nom.
-#[derive(Clone, Debug, PartialEq)]
+/// Écran branché, actif ou non : sa clé, son modèle, son numéro de série et son nom.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Seen {
     pub key: String,
     /// Identifiant PnP tiré de l'EDID (« GBT3214 ») ; vide s'il est illisible.
     pub model: String,
+    /// Numéro de série de l'EDID ; vide s'il n'y en a pas.
+    pub serial: String,
     pub name: String,
 }
 
@@ -587,12 +590,44 @@ pub fn seen() -> Res<Vec<Seen>> {
     let mut keys = Keys::default();
     Ok(screens(&cfg)
         .into_iter()
-        .map(|p| Seen { key: keys.of(p), model: model(&p.targetInfo), name: friendly(&p.targetInfo) })
+        .map(|p| {
+            let path = info::<DISPLAYCONFIG_TARGET_DEVICE_NAME>(GET_TARGET_NAME, p.targetInfo.adapterId, p.targetInfo.id).map(|n| wstr(&n.monitorDevicePath)).unwrap_or_default();
+            Seen { key: keys.of(p), model: model_of(&path), serial: serial_of(&edid(&path)), name: friendly(&p.targetInfo) }
+        })
         .collect())
 }
 
-fn model(t: &DISPLAYCONFIG_PATH_TARGET_INFO) -> String {
-    info::<DISPLAYCONFIG_TARGET_DEVICE_NAME>(GET_TARGET_NAME, t.adapterId, t.id).map_or_else(String::new, |n| model_of(&wstr(&n.monitorDevicePath)))
+/// EDID d'un écran, que Windows garde sous son instance PnP :
+/// `\\?\DISPLAY#GBT3214#5&9d93ce2&1&UID274#{…}` → `Enum\DISPLAY\GBT3214\5&9d93ce2&1&UID274`.
+fn edid(path: &str) -> Vec<u8> {
+    let [_, model, instance, ..] = path.split('#').collect::<Vec<_>>()[..] else { return Vec::new() };
+    let key = HSTRING::from(format!(r"SYSTEM\CurrentControlSet\Enum\DISPLAY\{model}\{instance}\Device Parameters"));
+    let mut buf = vec![0u8; 1024];
+    let mut size = buf.len() as u32;
+    let read = unsafe { RegGetValueW(HKEY_LOCAL_MACHINE, &key, w!("EDID"), RRF_RT_REG_BINARY, None, Some(buf.as_mut_ptr().cast()), Some(&mut size)) };
+    buf.truncate(if read.is_ok() { size as usize } else { 0 });
+    buf
+}
+
+/// Numéro de série d'un EDID : celui écrit en toutes lettres (descripteur FF), sinon le
+/// numérique, sauf s'il vaut 0 ou 0x01010101, valeurs bouche-trou de bien des fabricants.
+fn serial_of(edid: &[u8]) -> String {
+    if edid.len() < 128 {
+        return String::new();
+    }
+    for o in [54, 72, 90, 108] {
+        if edid[o..o + 2] == [0, 0] && edid[o + 3] == 0xFF {
+            let text: String = edid[o + 5..o + 18].iter().take_while(|&&b| b != b'\n').map(|&b| b as char).collect();
+            let text: String = text.trim().chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
+            if !text.is_empty() {
+                return text;
+            }
+        }
+    }
+    match u32::from_le_bytes([edid[12], edid[13], edid[14], edid[15]]) {
+        0 | 0x0101_0101 => String::new(),
+        n => n.to_string(),
+    }
 }
 
 /// `\\?\DISPLAY#GBT3214#5&9d93ce2&1&UID274#{…}` → `GBT3214`.
@@ -1767,6 +1802,20 @@ mod tests {
         assert_eq!(model_of(r"\\?\DISPLAY#GBT3214#5&9d93ce2&1&UID274#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}"), "GBT3214");
         assert_eq!(model_of(r"\\?\display#bnq7950#5&9d93ce2&1&UID273#{e6f07b5f}"), "BNQ7950");
         assert_eq!(model_of(""), "");
+    }
+
+    #[test]
+    fn serials_come_from_the_edid() {
+        let mut e = vec![0u8; 128];
+        e[12..16].copy_from_slice(&0x0101_0101u32.to_le_bytes());
+        assert_eq!(serial_of(&e), "", "valeur bouche-trou");
+        e[12..16].copy_from_slice(&21573u32.to_le_bytes());
+        assert_eq!(serial_of(&e), "21573");
+        // Descripteur FF du HP 324ph : le numéro en toutes lettres l'emporte.
+        e[90..95].copy_from_slice(&[0, 0, 0, 0xFF, 0]);
+        e[95..108].copy_from_slice(b"6CM5400YMP\n  ");
+        assert_eq!(serial_of(&e), "6CM5400YMP");
+        assert_eq!(serial_of(&e[..100]), "", "EDID tronqué");
     }
 
     #[test]

@@ -1,13 +1,16 @@
 //! Écrans dont Windows a changé l'identifiant de connecteur : pilote graphique réinstallé
-//! ou mis à jour, écran rebranché sur un autre port. Profils et préférences DDC/CI
-//! désignent chaque écran par sa clé (chemin de l'adaptateur + identifiant du connecteur) :
-//! sans ce rattachement, un profil échoue (« Aucun écran de ce profil n'est branché ») et
-//! les réglages DDC/CI d'un écran ne s'appliquent plus.
+//! ou mis à jour, écran rebranché sur un autre port. Les profils désignent chaque écran
+//! par sa clé (chemin de l'adaptateur + identifiant du connecteur) : sans ce rattachement,
+//! un profil échoue (« Aucun écran de ce profil n'est branché »).
 //!
 //! Chaque clé mémorisée qui ne désigne plus le bon écran est rattachée à l'écran branché
-//! du même modèle, sur le même adaptateur. Le modèle vient de l'EDID (profils et
-//! préférences enregistrés à partir de cette version) ; pour les profils plus anciens,
-//! du nom de la tuile placée à la position de l'écran.
+//! du même modèle, sur le même adaptateur. Le modèle vient de l'EDID (profils enregistrés
+//! à partir de la 2.2) ; pour les profils plus anciens, du nom de la tuile placée à la
+//! position de l'écran.
+//!
+//! Les préférences DDC/CI et le nom donné à chaque écran sont rangés, eux, sous son
+//! identité (modèle et numéro de série, `ids`) : un dock réattribue les mêmes connecteurs
+//! aux écrans de la maison et à ceux du bureau.
 
 use crate::display::{self, Seen};
 use crate::store::{Profile, Screen, Store};
@@ -133,18 +136,68 @@ fn resigned(sig: &str, map: &BTreeMap<String, String>) -> String {
     v.join(";")
 }
 
-/// Préférences sans réglage de l'utilisateur : seulement des capacités lues sur l'écran.
-fn untouched(sc: &Screen) -> bool {
-    Screen { caps: Default::default(), model: String::new(), ..sc.clone() } == Screen::default()
+/// Clé des préférences de chaque écran branché : son modèle et son numéro de série
+/// (« GBT3214/24440B002199 »), le modèle seul s'il n'a pas de numéro. Deux écrans qui
+/// auraient la même sont numérotés dans l'ordre des connecteurs (« HPN3B03:2 »). Sans
+/// modèle lisible, la clé du connecteur.
+pub fn ids(seen: &[Seen]) -> BTreeMap<String, String> {
+    let base = |x: &Seen| match (x.model.is_empty(), x.serial.is_empty()) {
+        (true, _) => x.key.clone(),
+        (false, true) => x.model.clone(),
+        (false, false) => format!("{}/{}", x.model, x.serial),
+    };
+    let mut sorted: Vec<&Seen> = seen.iter().collect();
+    sorted.sort_by_key(|x| (number(&x.key), x.key.clone()));
+    let mut out = BTreeMap::new();
+    for x in &sorted {
+        let id = base(x);
+        let twins: Vec<&&Seen> = sorted.iter().filter(|y| base(y) == id).collect();
+        let id = match twins.iter().position(|y| y.key == x.key) {
+            Some(i) if twins.len() > 1 => format!("{id}:{}", i + 1),
+            _ => id,
+        };
+        out.insert(x.key.clone(), id);
+    }
+    out
 }
 
-/// Ce qui a été rattaché : anciennes et nouvelles clés, et si les préférences des
-/// écrans ont changé (raccourcis de bascule d'entrée à réenregistrer).
+/// Préférences rangées par connecteur (avant la 2.3.1), reprises par l'écran branché qui
+/// n'a pas encore les siennes : celles de son connecteur si elles sont à son modèle,
+/// sinon les seules de son modèle, s'il est le seul de ce modèle à attendre. Sans modèle
+/// noté, rien ne dit à quel écran elles étaient : laissées. Renvoie s'il y a eu reprise.
+fn adopt(s: &mut Store, seen: &[Seen], ids: &BTreeMap<String, String>) -> bool {
+    let mine = |sc: &Screen, x: &Seen| sc.model.eq_ignore_ascii_case(&x.model);
+    let waiting: Vec<&Seen> = seen.iter().filter(|x| ids[&x.key] != x.key && !s.screens.contains_key(&ids[&x.key])).collect();
+    let mut found: Vec<(String, &Seen)> = Vec::new();
+    let mut left = Vec::new();
+    for x in waiting {
+        match s.screens.get(&x.key) {
+            Some(sc) if mine(sc, x) => found.push((x.key.clone(), x)),
+            _ => left.push(x),
+        }
+    }
+    for x in &left {
+        let alone = left.iter().filter(|y| y.model.eq_ignore_ascii_case(&x.model)).count() == 1;
+        let olds: Vec<&String> = s.screens.iter().filter(|(k, sc)| k.contains('#') && mine(sc, x) && !found.iter().any(|f| f.0 == **k)).map(|(k, _)| k).collect();
+        if let ([old], true) = (olds.as_slice(), alone) {
+            found.push(((*old).clone(), x));
+        }
+    }
+    for (old, x) in &found {
+        if let Some(sc) = s.screens.remove(old) {
+            s.screens.insert(ids[&x.key].clone(), Screen { model: String::new(), ..sc });
+        }
+    }
+    !found.is_empty()
+}
+
+/// Ce qui a été rattaché : anciennes et nouvelles clés des profils, et si les préférences
+/// des écrans branchés ont changé (moteur et raccourcis de bascule d'entrée à mettre à jour).
 #[derive(Debug, Default, PartialEq)]
 pub struct Moved {
     pub keys: BTreeMap<String, String>,
     pub screens: bool,
-    /// Modèle noté pour la première fois sur des préférences : à enregistrer.
+    /// Préférences d'avant la 2.3.1 rangées sous leur écran : à enregistrer.
     pub claimed: bool,
 }
 
@@ -157,19 +210,9 @@ impl Moved {
 /// Rattache profils et préférences aux nouvelles clés de leurs écrans.
 pub fn run(s: &mut Store, seen: &[Seen]) -> Moved {
     let mut moved = Moved::default();
-    // Dernier écran connu de chaque clé, d'après le profil le plus récent qui la contient
-    // (l'identifiant d'un profil est sa date d'enregistrement, en hexadécimal).
-    let mut latest: BTreeMap<String, (u64, Ident)> = BTreeMap::new();
     let mut maps = Vec::with_capacity(s.profiles.len());
     for p in &s.profiles {
-        let ids = idents(p);
-        let when = u64::from_str_radix(&p.id, 16).unwrap_or(0);
-        for (k, id) in ids.iter().filter(|(_, id)| id.known()) {
-            if latest.get(k).is_none_or(|(w, _)| *w <= when) {
-                latest.insert(k.clone(), (when, id.clone()));
-            }
-        }
-        maps.push(matches(&ids, seen));
+        maps.push(matches(&idents(p), seen));
     }
     // Même ancienne clé, même nouvelle clé dans tous les profils qui la rattachent.
     let mut union: BTreeMap<String, Option<String>> = BTreeMap::new();
@@ -208,49 +251,10 @@ pub fn run(s: &mut Store, seen: &[Seen]) -> Moved {
         }
     }
 
-    // Préférences des écrans : le modèle noté sur elles, sinon le profil le plus récent.
-    let ident = |k: &String, sc: &Screen| match sc.model.is_empty() {
-        false => Ident { model: Some(sc.model.clone()), name: None },
-        true => latest.get(k).map(|(_, id)| id.clone()).unwrap_or_default(),
-    };
-    // Préférences sans réglage (capacités lues, rien de plus) : remplaçables, elles ne
-    // retiennent pas leur clé.
-    let known: Vec<(String, Ident)> = s.screens.iter().filter(|(_, sc)| !untouched(sc)).map(|(k, sc)| (k.clone(), ident(k, sc))).collect();
-    let found = matches(&known, seen);
-    // Les réglages déjà faits sous la nouvelle clé restent, sauf s'ils partent eux-mêmes ailleurs.
-    let blocked = |n: &String| s.screens.get(n).is_some_and(|sc| !untouched(sc)) && !found.contains_key(n);
-    let map: BTreeMap<String, String> = found.iter().filter(|(_, n)| !blocked(n)).map(|(o, n)| (o.clone(), n.clone())).collect();
-    if !map.is_empty() {
-        let mut next = BTreeMap::new();
-        for (k, sc) in std::mem::take(&mut s.screens) {
-            match map.get(&k) {
-                Some(n) => {
-                    next.insert(n.clone(), sc);
-                }
-                // Préférences vides laissées par l'écran sous sa nouvelle clé : remplacées.
-                None if map.values().any(|n| *n == k) => {
-                    next.entry(k).or_insert(sc);
-                }
-                None => {
-                    next.insert(k, sc);
-                }
-            }
-        }
-        s.screens = next;
-        moved.screens = true;
-        for (o, n) in map {
-            moved.keys.insert(o, n);
-        }
-    }
-    // Modèle noté sur les préférences de chaque écran branché, s'il est bien celui-là :
-    // la prochaine fois, elles le suivront sans dépendre des profils.
-    for x in seen.iter().filter(|x| !x.model.is_empty()) {
-        let Some(sc) = s.screens.get_mut(&x.key) else { continue };
-        if sc.model.is_empty() && latest.get(&x.key).is_none_or(|(_, id)| !id.known() || id.is(x) || moved.keys.values().any(|n| *n == x.key)) {
-            sc.model = x.model.clone();
-            moved.claimed = true;
-        }
-    }
+    let ids = ids(seen);
+    moved.claimed = adopt(s, seen, &ids);
+    moved.screens = moved.claimed || s.here != ids;
+    s.here = ids;
     moved
 }
 
@@ -273,7 +277,7 @@ mod tests {
     }
 
     fn seen(n: u32, model: &str, name: &str) -> Seen {
-        Seen { key: key(n), model: model.into(), name: name.into() }
+        Seen { key: key(n), model: model.into(), name: name.into(), ..Default::default() }
     }
 
     fn named(n: &str) -> Ident {
@@ -308,7 +312,7 @@ mod tests {
         // Rien de connu sur l'écran : on ne devine pas.
         assert!(matches(&[(key(271), Ident::default())], &now).is_empty());
         // Autre adaptateur : pas le même chemin.
-        let other = Seen { key: r"\\?\PCI#VEN_10DE#{x}#300".into(), model: "GBT3214".into(), name: "AORUS FO32U2".into() };
+        let other = Seen { key: r"\\?\PCI#VEN_10DE#{x}#300".into(), model: "GBT3214".into(), name: "AORUS FO32U2".into(), ..Default::default() };
         assert!(matches(&[(key(272), modeled("GBT3214"))], &[other]).is_empty());
     }
 
@@ -364,40 +368,57 @@ mod tests {
         Screen { range: display::Range(10, 60), vcp: Some(0x10), ..Default::default() }
     }
 
-    #[test]
-    fn screen_preferences_follow_their_screen() {
-        let now = [seen(273, "BNQ7950", "BenQ EW3270U"), seen(274, "GBT3214", "AORUS FO32U2")];
-        let mut s = Store::default();
-        s.screens.insert(key(272), Screen { model: "GBT3214".into(), ..tuned() });
-        // Préférences vides créées entre-temps sous la nouvelle clé (capacités lues) : remplacées.
-        let mut caps = BTreeMap::new();
-        caps.insert(0x10u8, Vec::new());
-        s.screens.insert(key(274), Screen { caps, ..Default::default() });
-        // Écran inconnu (jamais vu depuis cette version, dans aucun profil) : laissé.
-        s.screens.insert(key(261), tuned());
-        let moved = run(&mut s, &now);
-        assert_eq!(moved.keys, map(&[(272, 274)]));
-        assert!(moved.screens);
-        assert_eq!(s.screens.keys().cloned().collect::<Vec<_>>(), [key(261), key(274)]);
-        assert_eq!(s.screens[&key(274)].range, display::Range(10, 60));
-        // Réglages déjà faits sous la nouvelle clé : on ne les écrase pas.
-        let mut s = Store::default();
-        s.screens.insert(key(272), Screen { model: "GBT3214".into(), ..tuned() });
-        s.screens.insert(key(274), Screen { name: "Jeu".into(), ..Default::default() });
-        assert!(run(&mut s, &now).keys.is_empty());
-        assert_eq!(s.screens[&key(274)].name, "Jeu");
-        assert_eq!(s.screens[&key(274)].model, "GBT3214");
+    fn serial(n: u32, model: &str, serial: &str) -> Seen {
+        Seen { serial: serial.into(), ..seen(n, model, "") }
     }
 
     #[test]
-    fn connected_preferences_get_their_model() {
-        let now = [seen(274, "GBT3214", "AORUS FO32U2")];
+    fn each_screen_has_its_own_preferences() {
+        // Cas réel : le dock donne le connecteur 274 à un HP au bureau, à l'AORUS à la maison.
+        let office = [serial(271, "HPN3B03", "6CM5400X72"), serial(274, "HPN3B03", "6CM5400YMP")];
+        let home = [serial(274, "GBT3214", "24440B002199"), serial(273, "BNQ7950", "L8K04003019")];
         let mut s = Store::default();
-        s.screens.insert(key(274), tuned());
-        let moved = run(&mut s, &now);
-        assert!(moved.claimed && moved.keys.is_empty());
-        assert_eq!(s.screens[&key(274)].model, "GBT3214");
-        // Déjà noté : rien à enregistrer.
-        assert!(!run(&mut s, &now).any());
+        assert!(run(&mut s, &office).screens);
+        s.screen_mut(&key(274)).name = "HP Droit".into();
+        s.screen_mut(&key(271)).name = "HP Gauche".into();
+        run(&mut s, &home);
+        assert_eq!(s.screen(&key(274)), None);
+        s.screen_mut(&key(274)).name = "Jeu".into();
+        assert_eq!(s.by_key().keys().cloned().collect::<Vec<_>>(), [key(274)]);
+        // Retour au bureau, connecteurs échangés : chaque HP retrouve son nom.
+        let office = [serial(274, "HPN3B03", "6CM5400X72"), serial(271, "HPN3B03", "6CM5400YMP")];
+        run(&mut s, &office);
+        assert_eq!((s.screen(&key(274)).unwrap().name.as_str(), s.screen(&key(271)).unwrap().name.as_str()), ("HP Gauche", "HP Droit"));
+        assert_eq!(s.screens["GBT3214/24440B002199"].name, "Jeu");
+        assert!(!run(&mut s, &office).any());
+    }
+
+    #[test]
+    fn screens_without_serial_get_their_model_or_a_number() {
+        let twins = [seen(274, "HPN3B03", ""), seen(271, "HPN3B03", ""), seen(273, "BNQ7950", ""), seen(260, "", "")];
+        let ids = ids(&twins);
+        assert_eq!([&ids[&key(271)], &ids[&key(274)], &ids[&key(273)], &ids[&key(260)]], ["HPN3B03:1", "HPN3B03:2", "BNQ7950", &key(260)]);
+    }
+
+    #[test]
+    fn preferences_by_connector_go_to_their_screen() {
+        let mut s = Store::default();
+        // Écrites sous le connecteur de l'AORUS, puis sous celui qu'un HP a repris au bureau.
+        s.screens.insert(key(272), Screen { model: "GBT3214".into(), name: "Jeu".into(), ..tuned() });
+        s.screens.insert(key(274), Screen { model: "HPN3B03".into(), name: "HP Droit".into(), ..tuned() });
+        s.screens.insert(key(271), Screen { name: "Ancien".into(), ..tuned() });
+        let home = [serial(274, "GBT3214", "24440B002199"), serial(271, "BNQ7950", "L8K04003019")];
+        let moved = run(&mut s, &home);
+        assert!(moved.claimed && moved.screens);
+        // L'AORUS reprend les siennes, pas celles du HP ; le BenQ ne prend pas celles de son
+        // connecteur, d'un écran inconnu.
+        assert_eq!(s.screen(&key(274)).unwrap().name, "Jeu");
+        assert_eq!(s.screen(&key(271)), None);
+        assert_eq!(s.screens[&key(274)].name, "HP Droit");
+        assert_eq!(s.screens["GBT3214/24440B002199"].model, "");
+        // Deux HP pour un seul réglage de leur modèle : lequel est-ce ? Aucun.
+        let office = [serial(275, "HPN3B03", "6CM5400X72"), serial(276, "HPN3B03", "6CM5400YMP")];
+        assert!(!run(&mut s, &office).claimed);
+        assert!(s.screens.contains_key(&key(274)));
     }
 }

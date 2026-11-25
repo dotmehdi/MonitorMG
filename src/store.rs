@@ -179,7 +179,9 @@ impl Default for Feature {
 /// réglages d'usine, enregistrer) : jamais affichés comme réglages.
 pub const COMMANDS: [u8; 7] = [0x01, 0x04, 0x05, 0x06, 0x08, 0x0A, 0xB0];
 
-/// Préférences d'un écran pour le panneau et DDC/CI, par clé d'écran.
+/// Préférences d'un écran pour le panneau et DDC/CI, rangées sous son identité
+/// (`rekey::ids`) : elles le suivent d'un connecteur à l'autre, et un autre écran branché
+/// au même endroit a les siennes.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct Screen {
@@ -199,8 +201,8 @@ pub struct Screen {
     /// Raccourci global de bascule d'entrée ; attribué par `assign_hotkey`, jamais par
     /// l'enregistrement des préférences.
     pub input_hotkey: Option<String>,
-    /// Modèle de l'écran (identifiant PnP de son EDID) : ses préférences le suivent si
-    /// Windows change l'identifiant de son connecteur (`rekey.rs`).
+    /// Modèle de l'écran (identifiant PnP de son EDID), noté sur les préférences rangées
+    /// par connecteur avant la 2.3.1 : il les rattache à leur écran (`rekey::adopt`).
     #[serde(skip_serializing_if = "String::is_empty")]
     pub model: String,
 }
@@ -460,6 +462,10 @@ pub struct Store {
     pub updates: bool,
     #[serde(default)]
     pub auto_update: AutoUpdate,
+    /// Écrans branchés : clé de connecteur → clé de leurs préférences dans `screens`.
+    /// Tenu à jour par `rekey::run`, jamais enregistré.
+    #[serde(skip)]
+    pub here: BTreeMap<String, String>,
 }
 
 /// Dossier des données dans %APPDATA%. Une version d'essai en prend un autre
@@ -533,6 +539,25 @@ impl Store {
             .and_then(|_| fs::write(&tmp, json))
             .and_then(|_| fs::rename(&tmp, &f))
             .map_err(|e| tr!("Enregistrement impossible : {e}", "Can't save: {e}"))
+    }
+
+    /// Clé des préférences de l'écran branché sur ce connecteur.
+    pub fn id(&self, key: &str) -> String {
+        self.here.get(key).cloned().unwrap_or_else(|| key.to_string())
+    }
+
+    pub fn screen(&self, key: &str) -> Option<&Screen> {
+        self.screens.get(&self.id(key))
+    }
+
+    pub fn screen_mut(&mut self, key: &str) -> &mut Screen {
+        let id = self.id(key);
+        self.screens.entry(id).or_default()
+    }
+
+    /// Préférences des écrans branchés, par clé de connecteur.
+    pub fn by_key(&self) -> BTreeMap<String, Screen> {
+        self.here.iter().filter_map(|(k, id)| Some((k.clone(), self.screens.get(id)?.clone()))).collect()
     }
 
     pub fn get_mut(&mut self, id: &str) -> Res<&mut Profile> {

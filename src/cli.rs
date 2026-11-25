@@ -113,7 +113,7 @@ fn logged(app: &AppHandle, r: Res<(Level, String)>) -> Res<String> {
 
 /// Commande reçue par MonitorMG en marche (second lancement).
 pub(crate) fn run(app: &AppHandle, cmd: Cmd) {
-    let screens = store(app).screens.clone();
+    let screens = store(app).by_key();
     let r = match cmd {
         Cmd::Profile(id) => {
             let found = store(app).profiles.iter().find(|p| p.id == id || p.name == id).map(|p| p.id.clone());
@@ -146,16 +146,17 @@ pub(crate) fn alone(cmd: Cmd) {
     let src = Src::Command.label();
     let mut s = store::Store::load();
     follow_screens_alone(&mut s, src);
-    display::tune(s.screens.iter().map(|(k, sc)| (k.clone(), sc.tune())).collect());
+    let screens = s.by_key();
+    display::tune(screens.iter().map(|(k, sc)| (k.clone(), sc.tune())).collect());
     let r = match cmd {
         Cmd::Brightness { pct, screen } => {
             display::read_brightness();
-            brightness(&s.screens, pct, screen.as_deref()).map(|text| (Level::Ok, text))
+            brightness(&screens, pct, screen.as_deref()).map(|text| (Level::Ok, text))
         }
-        Cmd::Input(sel) => input(&s.screens, &sel),
+        Cmd::Input(sel) => input(&screens, &sel),
         Cmd::Off => {
             journal::write(Level::Ok, src, t("Écrans éteints", "Displays turned off"));
-            return power_down(s.panel.off, s.panel.power, &s.screens, HWND_BROADCAST);
+            return power_down(s.panel.off, s.panel.power, &screens, HWND_BROADCAST);
         }
         Cmd::Profile(_) | Cmd::Json => return,
     };
@@ -189,8 +190,9 @@ pub(crate) fn refuse(e: &str) {
 /// `--json` : l'état des écrans et des profils, pour un script.
 pub(crate) fn print_state() {
     console();
-    let s = store::Store::load();
-    display::tune(s.screens.iter().map(|(k, sc)| (k.clone(), sc.tune())).collect());
+    let mut s = store::Store::load();
+    follow_screens_alone(&mut s, Src::Command.label());
+    display::tune(s.by_key().iter().map(|(k, sc)| (k.clone(), sc.tune())).collect());
     display::read_brightness();
     let state = state_json(&s, &display::monitors().unwrap_or_default(), &display::signature().unwrap_or_default());
     let _ = writeln!(std::io::stdout(), "{}", serde_json::to_string_pretty(&state).unwrap_or_default());
@@ -204,7 +206,7 @@ fn state_json(s: &store::Store, mons: &[display::Monitor], sig: &str) -> serde_j
             serde_json::json!({
                 "number": i + 1,
                 "name": m.name,
-                "label": s.screens.get(&m.key).map(|x| x.name.as_str()).filter(|n| !n.is_empty()),
+                "label": s.screen(&m.key).map(|x| x.name.as_str()).filter(|n| !n.is_empty()),
                 "connector": m.connector,
                 "internal": m.internal,
                 "active": m.active,

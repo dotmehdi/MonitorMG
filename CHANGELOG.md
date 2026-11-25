@@ -1,5 +1,22 @@
 # Journal des modifications
 
+## 2.3.1
+
+Correction : avec un dock utilisé à la maison et au bureau, un écran prenait le nom et les réglages DDC/CI d'un autre.
+
+### Écrans
+
+- Nom, réglages DDC/CI (volume, contraste, entrées…), plage et code de la luminosité, raccourci de bascule d'entrée : chaque écran a désormais les siens, reconnus à son modèle et à son numéro de série. Ils étaient rangés par connecteur, et un dock USB4 donne les mêmes connecteurs aux écrans de la maison et à ceux du bureau : l'AORUS s'appelait « HP Droit », et les HP, sans haut-parleurs, recevaient le réglage du volume de l'AORUS.
+- Deux écrans identiques (deux HP 324ph) sont distingués par leur numéro de série.
+- Les réglages déjà faits sont repris par l'écran dont ils portent le modèle. Ceux de deux écrans jumeaux ne le sont que si chacun est sur son connecteur d'origine ; sinon, il faut les nommer à nouveau une fois.
+- Un profil appliqué au branchement ne s'applique plus si d'autres écrans occupent ses connecteurs.
+
+### Technique
+
+- `display::seen` lit le numéro de série dans l'EDID que Windows garde au registre ; `rekey::ids` en tire l'identité de chaque écran branché, `rekey::adopt` reprend les réglages rangés par connecteur.
+- `Store::here` associe chaque connecteur à l'écran branché ; tout passe par `screen`, `screen_mut` et `by_key`. L'interface n'a pas changé.
+- 52 tests Rust.
+
 ## 2.3.0
 
 Nouveauté : MonitorMG se met à jour lui-même, depuis les releases de GitHub.

@@ -15,7 +15,7 @@ pub(crate) const INPUT: &str = "@input|";
 pub(crate) fn hotkeys(s: &store::Store) -> Vec<(String, String)> {
     let actions = [(OFF, &s.off_hotkey), (UP, &s.up_hotkey), (DOWN, &s.down_hotkey)];
     let actions = actions.into_iter().filter_map(|(o, h)| Some((o.to_string(), h.clone()?)));
-    let inputs = s.screens.iter().filter_map(|(k, sc)| Some((format!("{INPUT}{k}"), sc.input_hotkey.clone()?)));
+    let inputs = s.by_key().into_iter().filter_map(|(k, sc)| Some((format!("{INPUT}{k}"), sc.input_hotkey?)));
     s.profiles.iter().filter_map(|p| Some((p.id.clone(), p.hotkey.clone()?))).chain(actions).chain(inputs).collect()
 }
 
@@ -24,7 +24,7 @@ pub(crate) fn hotkey_slot<'a>(s: &'a mut store::Store, owner: &str) -> Res<&'a m
         OFF => &mut s.off_hotkey,
         UP => &mut s.up_hotkey,
         DOWN => &mut s.down_hotkey,
-        o if o.starts_with(INPUT) => &mut s.screens.entry(o[INPUT.len()..].to_string()).or_default().input_hotkey,
+        o if o.starts_with(INPUT) => &mut s.screen_mut(&o[INPUT.len()..]).input_hotkey,
         id => &mut s.get_mut(id)?.hotkey,
     })
 }
@@ -83,7 +83,7 @@ pub(crate) fn screens_off(app: &AppHandle, src: Src) {
     note(app, Level::Ok, src, t("Écrans éteints", "Displays turned off"));
     let (mode, signal, screens) = {
         let s = store(app);
-        (s.panel.off, s.panel.power, s.screens.clone())
+        (s.panel.off, s.panel.power, s.by_key())
     };
     thread::spawn(move || power_down(mode, signal, &screens, HWND(WATCHER.load(Ordering::SeqCst) as *mut _)));
 }
@@ -173,7 +173,7 @@ fn next_input((a, b): (u8, u8), current: Option<u32>) -> u8 {
 /// Raccourci de bascule d'entrée : un KVM logiciel pour un écran branché à deux machines.
 /// Pas de confirmation, c'est le but ; le journal garde la trace.
 pub(crate) fn toggle_input(app: &AppHandle, src: Src, key: &str) {
-    let Some(pair) = store(app).screens.get(key).and_then(|sc| sc.inputs) else { return };
+    let Some(pair) = store(app).screen(key).and_then(|sc| sc.inputs) else { return };
     let (level, text) = switch_input(key, pair);
     note(app, level, src, &text);
     if level == Level::Error {
@@ -210,11 +210,14 @@ mod tests {
     #[test]
     fn input_hotkeys_are_listed_with_their_screen() {
         let mut s = store::Store { off_hotkey: Some("Ctrl+Alt+KeyO".into()), ..Default::default() };
-        s.screens.insert("écran-a".into(), store::Screen { input_hotkey: Some("Ctrl+Alt+KeyI".into()), ..Default::default() });
-        s.screens.insert("écran-b".into(), store::Screen::default());
+        s.screens.insert("A/1".into(), store::Screen { input_hotkey: Some("Ctrl+Alt+KeyI".into()), ..Default::default() });
+        s.screens.insert("B/2".into(), store::Screen::default());
+        // Débranché : son raccourci n'est pas pris.
+        s.screens.insert("C/3".into(), store::Screen { input_hotkey: Some("Ctrl+Alt+KeyJ".into()), ..Default::default() });
+        s.here = [("écran-a", "A/1"), ("écran-b", "B/2")].map(|(k, id)| (k.to_string(), id.to_string())).into();
         let keys = hotkeys(&s);
         assert_eq!(keys, [(OFF.to_string(), "Ctrl+Alt+KeyO".to_string()), (format!("{INPUT}écran-a"), "Ctrl+Alt+KeyI".to_string())]);
         *hotkey_slot(&mut s, &format!("{INPUT}écran-b")).unwrap() = Some("F9".into());
-        assert_eq!(s.screens["écran-b"].input_hotkey.as_deref(), Some("F9"));
+        assert_eq!(s.screens["B/2"].input_hotkey.as_deref(), Some("F9"));
     }
 }

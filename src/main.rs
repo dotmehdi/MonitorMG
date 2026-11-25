@@ -207,7 +207,7 @@ async fn state(app: AppHandle) -> Res<View> {
                     .collect(),
             })
             .collect();
-        (views, s.confirm, s.identify, [s.off_hotkey.clone(), s.up_hotkey.clone(), s.down_hotkey.clone()], s.panel.clone(), s.screens.clone(), s.schedule.clone(), (s.updates, s.auto_update))
+        (views, s.confirm, s.identify, [s.off_hotkey.clone(), s.up_hotkey.clone(), s.down_hotkey.clone()], s.panel.clone(), s.by_key(), s.schedule.clone(), (s.updates, s.auto_update))
     };
     let [off_hotkey, up_hotkey, down_hotkey] = hotkeys;
     for m in &monitors {
@@ -300,13 +300,13 @@ async fn set_brightness(app: AppHandle, key: String, pct: u32) -> Res<()> {
 /// Codes VCP de l'écran, lus une fois puis gardés dans ses préférences.
 #[tauri::command]
 async fn ddc_caps(app: AppHandle, key: String, force: bool) -> Res<BTreeMap<u8, Vec<u8>>> {
-    let known = store(&app).screens.get(&key).map(|s| s.caps.clone()).filter(|c| !c.is_empty());
+    let known = store(&app).screen(&key).map(|s| s.caps.clone()).filter(|c| !c.is_empty());
     if let (false, Some(c)) = (force, known) {
         return Ok(c);
     }
     let caps = display::vcp_caps(&key)?;
     save_with(&app, |s| {
-        s.screens.entry(key).or_default().caps = caps.clone();
+        s.screen_mut(&key).caps = caps.clone();
         Ok(())
     })?;
     retune(&app);
@@ -316,7 +316,7 @@ async fn ddc_caps(app: AppHandle, key: String, force: bool) -> Res<BTreeMap<u8, 
 /// Valeurs actuelles des réglages affichés dans le panneau.
 #[tauri::command]
 async fn ddc_values(app: AppHandle, key: String) -> Res<Vec<DdcValue>> {
-    let sc = store(&app).screens.get(&key).cloned().unwrap_or_default();
+    let sc = store(&app).screen(&key).cloned().unwrap_or_default();
     let codes: Vec<u8> = sc.features.iter().map(|f| f.code).collect();
     if codes.is_empty() {
         return Ok(Vec::new());
@@ -339,7 +339,7 @@ async fn ddc_values(app: AppHandle, key: String) -> Res<Vec<DdcValue>> {
 /// Les autres codes sont refusés : certains remettent l'écran à zéro.
 #[tauri::command]
 async fn ddc_set(app: AppHandle, key: String, code: u8, value: u32) -> Res<()> {
-    let sc = store(&app).screens.get(&key).cloned().unwrap_or_default();
+    let sc = store(&app).screen(&key).cloned().unwrap_or_default();
     if !sc.features.iter().any(|f| f.code == code) {
         return Err(t("Ce réglage n'est pas activé pour cet écran", "This control isn't enabled for this display").into());
     }
@@ -360,7 +360,7 @@ async fn ddc_set(app: AppHandle, key: String, code: u8, value: u32) -> Res<()> {
 async fn ddc_power(app: AppHandle, key: String, on: Option<bool>) -> Res<u32> {
     let (sc, signal) = {
         let s = store(&app);
-        (s.screens.get(&key).cloned().unwrap_or_default(), s.panel.power)
+        (s.screen(&key).cloned().unwrap_or_default(), s.panel.power)
     };
     let on = match on {
         Some(on) => on,
@@ -388,14 +388,14 @@ async fn ddc_power(app: AppHandle, key: String, on: Option<bool>) -> Res<u32> {
 #[tauri::command]
 async fn set_screen(app: AppHandle, key: String, screen: store::Screen) -> Res<store::Screen> {
     let kept = save_with(&app, |s| {
-        let (caps, input_hotkey, model) = s.screens.get(&key).map(|x| (x.caps.clone(), x.input_hotkey.clone(), x.model.clone())).unwrap_or_default();
+        let (caps, input_hotkey, model) = s.screen(&key).map(|x| (x.caps.clone(), x.input_hotkey.clone(), x.model.clone())).unwrap_or_default();
         // Le raccourci de bascule d'entrée passe par `input_hotkey`, qui l'enregistre auprès de Windows.
         let screen = store::Screen { input_hotkey, model, ..screen }.checked(caps)?;
         // Le modèle noté ne compte pas : sans autre réglage, les préférences disparaissent.
         if (store::Screen { model: String::new(), ..screen.clone() }) == store::Screen::default() {
-            s.screens.remove(&key);
+            s.screens.remove(&s.id(&key));
         } else {
-            s.screens.insert(key, screen.clone());
+            s.screens.insert(s.id(&key), screen.clone());
         }
         Ok(screen)
     })?;
@@ -774,13 +774,14 @@ fn mode_label(name: &str, w: u32, h: u32, hz: u32) -> String {
 
 /// Applique les préférences DDC/CI au moteur d'affichage.
 fn retune(app: &AppHandle) {
-    display::tune(store(app).screens.iter().map(|(k, s)| (k.clone(), s.tune())).collect());
+    display::tune(store(app).by_key().iter().map(|(k, s)| (k.clone(), s.tune())).collect());
 }
 
-/// Rattache profils et préférences DDC/CI aux écrans dont Windows a changé l'identifiant
-/// de connecteur (`rekey.rs`), l'enregistre et le consigne.
-fn follow_screens(app: &AppHandle) {
-    let Ok(seen) = display::seen() else { return };
+/// Rattache les profils aux écrans dont Windows a changé l'identifiant de connecteur et
+/// les préférences DDC/CI aux écrans branchés (`rekey.rs`), l'enregistre et le consigne.
+/// Renvoie les écrans branchés.
+fn follow_screens(app: &AppHandle) -> Vec<display::Seen> {
+    let Ok(seen) = display::seen() else { return Vec::new() };
     let (moved, saved) = {
         let mut s = store(app);
         let moved = rekey::run(&mut s, &seen);
@@ -797,6 +798,7 @@ fn follow_screens(app: &AppHandle) {
         retune(app);
         register_hotkeys(app);
     }
+    seen
 }
 
 /// Même rattachement, MonitorMG fermé : raccourci bureau ou ligne de commande.
@@ -816,8 +818,8 @@ fn follow_screens_alone(s: &mut store::Store, src: &str) {
 fn rekey_text(moved: &rekey::Moved, seen: &[display::Seen]) -> String {
     let names = rekey::describe(moved, seen);
     tr!(
-        "Windows a changé l'identifiant de connecteur de {names} : profils et réglages DDC/CI rattachés",
-        "Windows changed the connector ID of {names}: profiles and DDC/CI settings reattached"
+        "Windows a changé l'identifiant de connecteur de {names} : profils rattachés",
+        "Windows changed the connector ID of {names}: profiles reattached"
     )
 }
 
@@ -827,7 +829,7 @@ fn feature_range(sc: &store::Screen, code: u8) -> display::Range {
 
 /// Réglages liés à la luminosité : ils la suivent jusqu'à leur seuil, puis restent au maximum.
 fn follow(app: &AppHandle, key: &str, pct: u32) {
-    let Some(sc) = store(app).screens.get(key).cloned() else { return };
+    let Some(sc) = store(app).screen(key).cloned() else { return };
     follow_with(&sc, key, pct);
 }
 
@@ -1122,7 +1124,7 @@ fn apply_from_desktop(id: &str) {
     let mut s = store::Store::load();
     follow_screens_alone(&mut s, desk);
     // Préférences DDC/CI comprises : écran bloqué, plage et code de la luminosité.
-    display::tune(s.screens.iter().map(|(k, sc)| (k.clone(), sc.tune())).collect());
+    display::tune(s.by_key().iter().map(|(k, sc)| (k.clone(), sc.tune())).collect());
     let Some(p) = s.profiles.iter().find(|p| p.id == id || p.name == id) else {
         let e = tr!("Profil « {id} » introuvable", "Profile “{id}” not found");
         journal::write(Level::Error, desk, &e);

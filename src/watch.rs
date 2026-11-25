@@ -74,6 +74,9 @@ unsafe extern "system" fn watch_proc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
 /// profil automatique dont les écrans correspondent exactement.
 pub(crate) fn plugged(app: &AppHandle) {
     let Ok(now) = display::connected() else { return };
+    // Pilote réinstallé, écran rebranché ailleurs : Windows a pu renuméroter les connecteurs.
+    // Et un dock donne parfois les mêmes à d'autres écrans : chacun retrouve ses réglages.
+    let seen = follow_screens(app);
     let before = std::mem::replace(&mut *lock(&SCREENS), now.clone());
     if before == now {
         return;
@@ -86,9 +89,9 @@ pub(crate) fn plugged(app: &AppHandle) {
         1 => note(app, Level::Ok, Src::System, t("Un écran a été débranché", "A display was disconnected")),
         n => note(app, Level::Ok, Src::System, &tr!("{n} écrans ont été débranchés", "{n} displays were disconnected")),
     }
-    // Pilote réinstallé, écran rebranché ailleurs : Windows a pu renuméroter les connecteurs.
-    follow_screens(app);
-    let found = store(app).profiles.iter().find(|p| p.auto && p.screens == now).map(|p| (p.id.clone(), p.sig.clone()));
+    // Mêmes connecteurs, mais d'autres écrans (ceux du bureau, sur le même dock) : pas ce profil.
+    let theirs = |p: &store::Profile| p.snap.models.iter().all(|(k, m)| seen.iter().find(|x| x.key == *k).is_none_or(|x| x.model.is_empty() || x.model.eq_ignore_ascii_case(m)));
+    let found = store(app).profiles.iter().find(|p| p.auto && p.screens == now && theirs(p)).map(|p| (p.id.clone(), p.sig.clone()));
     let Some((id, sig)) = found else { return };
     // Windows a souvent déjà rétabli cet affichage : on évite un clignotement.
     if display::signature().is_ok_and(|s| s == sig) {
